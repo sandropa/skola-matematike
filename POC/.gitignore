@@ -1,0 +1,68 @@
+# Python files
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.env
+.env.*
+
+# FastAPI specific
+*.log
+*.db
+*.sqlite3
+
+# PostgreSQL
+*.pgdata/
+pg_dump.*
+
+# Node.js/React files
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+build/
+dist/
+
+# Environment files
+.env
+*.env.local
+.env.*.local
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Editor specific
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Byte-compiled / optimized / DLL files
+*.py[cod]
+*$py.class
+
+# Pytest cache
+.pytest_cache/
+
+# Coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+
+# Mypy
+.mypy_cache/
+
+# Bandit
+.bandit/
+
+# pytest
+.pytest_cache/
+.cache/
+
+# Other
+*.bak
+*.tmp
+*.old
+logs/
