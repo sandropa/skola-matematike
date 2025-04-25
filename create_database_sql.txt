@@ -1,0 +1,41 @@
+-- first: create database math_shool;
+
+
+-- Create the problems table
+CREATE TABLE problems (
+    id SERIAL PRIMARY KEY,  -- Use SERIAL for auto-incrementing integer PK in PostgreSQL
+    latex_content TEXT NOT NULL,
+    image_filename VARCHAR(255) NULL, -- Or TEXT if filenames can be very long
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW() -- Use TIMESTAMPTZ for timezone-aware timestamps
+);
+
+-- Add an index to the id column (SERIAL automatically creates one, but good practice)
+CREATE INDEX idx_problems_id ON problems(id);
+
+
+-- Create the lectures table
+CREATE TABLE lectures (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    group_name VARCHAR(100) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Add indexes for faster lookups
+CREATE INDEX idx_lectures_id ON lectures(id);
+CREATE INDEX idx_lectures_name ON lectures(name);
+CREATE INDEX idx_lectures_group_name ON lectures(group_name);
+
+
+-- Create the association table for the many-to-many relationship
+CREATE TABLE lecture_problems_association (
+    lecture_id INTEGER NOT NULL,
+    problem_id INTEGER NOT NULL,
+    PRIMARY KEY (lecture_id, problem_id), -- Composite primary key
+    FOREIGN KEY (lecture_id) REFERENCES lectures(id) ON DELETE CASCADE, -- If a lecture is deleted, remove associations
+    FOREIGN KEY (problem_id) REFERENCES problems(id) ON DELETE CASCADE  -- If a problem is deleted, remove associations
+);
+
+-- Indexes on foreign keys are often beneficial for join performance
+CREATE INDEX idx_association_lecture_id ON lecture_problems_association(lecture_id);
+CREATE INDEX idx_association_problem_id ON lecture_problems_association(problem_id);
