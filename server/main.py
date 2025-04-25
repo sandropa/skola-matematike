@@ -1,46 +1,3 @@
-# server/main.py
-
-import os
-import logging
-# --- Use EXACT imports from your working sample ---
-from google import genai
-from google.genai import types
-# --- End of sample-specific imports ---
-
-from fastapi import FastAPI, HTTPException, status
-from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field
-
-# Import the settings from your config file (assuming config.py loads .env)
-from .config import settings
-
-# --- Basic Logging Setup ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-# --- Check for API Key on Startup (Optional but good practice) ---
-if not settings.GEMINI_API_KEY:
-    logger.warning("GEMINI_API_KEY not found in environment variables. Translation endpoint might fail.")
-else:
-    logger.info("GEMINI_API_KEY found in environment variables.")
-
-
-# --- FastAPI App ---
-app = FastAPI(
-    title="Skola Matematike API",
-    description="API using the specific Gemini Client structure provided.",
-    version="0.2.0" # Incremented version
-)
-
-# --- Pydantic Models ---
-class LatexInput(BaseModel):
-    latex_text: str = Field(..., min_length=1, examples=["Solve $x^2 + 5x + 6 = 0$."])
-
-class TranslationOutput(BaseModel):
-    original_text: str
-    translated_text: str
-    language: str = "Bosnian"# server/main.py
-
 import os
 import logging
 # --- Use EXACT imports from your working sample ---
@@ -52,6 +9,8 @@ from fastapi import FastAPI, HTTPException, status, File, UploadFile # Added Fil
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 import mimetypes # Import mimetypes for guessing content type if needed (though UploadFile provides it)
+
+from .routers import problems
 
 # Import the settings from your config file (assuming config.py loads .env)
 from .config import settings
@@ -73,6 +32,8 @@ app = FastAPI(
     description="API using the specific Gemini Client structure provided.",
     version="0.3.0" # Incremented version
 )
+
+app.include_router(problems.router)
 
 # --- Pydantic Models ---
 class LatexInput(BaseModel):
@@ -110,14 +71,12 @@ def get_gemini_client():
              detail="Failed to initialize connection to API service."
         )
 
-# --- API Endpoints ---
 @app.get("/")
 async def root():
     """ Basic API root endpoint. """
     logger.info("Root endpoint '/' accessed.")
     return {"message": "Welcome to the Skola Matematike API (Using Specific Client)"}
 
-# --- Translation Endpoint (from previous step) ---
 @app.post(
     "/translate/latex-to-bosnian",
     response_model=TranslationOutput,
@@ -183,7 +142,6 @@ async def translate_latex(payload: LatexInput):
         raise HTTPException(status_code=500, detail="An internal error occurred during the translation process.")
 
 
-# --- NEW Image to LaTeX Endpoint ---
 @app.post(
     "/image-to-latex",
     response_model=LatexOutput,
@@ -291,20 +249,6 @@ async def image_to_latex(file: UploadFile = File(..., description="Image file of
         logger.error(f"An unexpected error occurred during image-to-latex conversion: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An internal error occurred during the image conversion process.")
 
-# --- API Endpoints ---
-@app.get("/")
-async def root():
-    """ Basic API root endpoint. """
-    logger.info("Root endpoint '/' accessed.")
-    return {"message": "Welcome to the Skola Matematike API (Using Specific Client)"}
-
-@app.post(
-    "/translate/latex-to-bosnian",
-    response_model=TranslationOutput,
-    summary="Translate LaTeX Math Problem to Bosnian (Specific Client)",
-    tags=["Translation"]
-)
-async def translate_latex(payload: LatexInput):
     """
     Receives mathematical text (potentially including LaTeX) and translates
     it to Bosnian using the specific Gemini Client structure provided,
