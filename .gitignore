@@ -66,3 +66,5 @@ htmlcov/
 *.tmp
 *.old
 logs/
+
+venv/
