@@ -1,1 +1,0 @@
-Ovo je samo za prvu verziju koju cemo imati u roku od par secmica, maksimalno. Treba imati glavne funkcionalnosti i nista vise. U sustini treba pokazati da ima smisla ovo raditi, i da postoji mjesta za poboljsanja.
