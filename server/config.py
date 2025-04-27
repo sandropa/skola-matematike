@@ -23,7 +23,7 @@ class Settings:
     # Check if essential DB components are present before constructing URL
     if all([POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB, POSTGRES_SERVER, POSTGRES_PORT]):
         SQLALCHEMY_DATABASE_URL = (
-            f"postgresql+psycopg://{POSTGRES_USER}:{POSTGRES_PASSWORD}@"
+            f"postgresql+psycopg2://{POSTGRES_USER}:{POSTGRES_PASSWORD}@"
             f"{POSTGRES_SERVER}:{POSTGRES_PORT}/{POSTGRES_DB}"
         )
     else:
