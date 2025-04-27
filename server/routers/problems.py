@@ -7,9 +7,13 @@ the database using this route
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+from typing import List
 
 from ..database import get_db
 from ..models.problem import Problem as DBProblem # The SQLAlchemy model
+#from ..models.task_model import Task as DBTask
+from ..schemas.task_schema import ProblemSchema as Task
+from ..services import task_service
 
 # --- Minimal Input Model (Inline) ---
 # Define this directly in the router file for this quick test
@@ -55,3 +59,39 @@ async def quick_create_problem(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Database error: {e}" # Include error details for debugging (remove in production)
         )
+
+
+@router.get("/", response_model=List[Task])
+def all_tasks(db: Session = Depends(get_db)):
+  
+    return task_service.get_all(db)
+
+@router.get("/{task_id}", response_model=Task)
+def get_task(task_id: int, db: Session = Depends(get_db)):
+  
+    task = task_service.get_one(db, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
+
+@router.post("/", response_model=Task, status_code=201)
+def create_task(task: Task, db: Session = Depends(get_db)):
+   
+    return task_service.create(db, task)
+
+@router.put("/{task_id}", response_model=Task)
+def update_task(task_id: int, new_task: Task, db: Session = Depends(get_db)):
+  
+    task = task_service.update(db, task_id, new_task)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
+
+@router.delete("/{task_id}", status_code=204)
+def delete_task(task_id: int, db: Session = Depends(get_db)):
+  
+    success = task_service.delete(db, task_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"message": "Task deleted successfully"}
+
