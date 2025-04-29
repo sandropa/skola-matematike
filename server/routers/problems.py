@@ -11,8 +11,8 @@ from typing import List
 
 from ..database import get_db
 from ..models.problem import Problem as DBProblem # The SQLAlchemy model
-#from ..models.task_model import Task as DBTask
-from ..schemas.task_schema import ProblemSchema as Task
+
+from ..schemas.problem_schema import ProblemSchema as Task
 from ..services import task_service
 
 # --- Minimal Input Model (Inline) ---

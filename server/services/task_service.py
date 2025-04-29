@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
-from ..models.problem import Problem as DBProblem  # SQLAlchemy Problem model
-from ..schemas.task_schema import ProblemSchema  # Pydantic Problem model (ako ga imaš)
+from ..models.problem import Problem as DBProblem 
+from ..schemas.problem_schema import ProblemSchema  
 
 def get_all(db: Session):
     return db.query(DBProblem).all()
