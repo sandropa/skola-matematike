@@ -3,28 +3,39 @@
 import logging
 from google import genai
 from fastapi import HTTPException, status, Depends
-
-logger = logging.getLogger(__name__)
+from sqlalchemy.orm import Session # Import Session type
 
 # Import settings (assuming server/config.py)
 try:
     from .config import settings
 except ImportError as e:
-    logger.error(f"Failed to import settings from config.py: {e}")
-    raise
+    logging.error(f"Failed to import settings from config.py: {e}")
+    raise # Critical error
 
-# Import the service class you just created
+# Import service classes
 try:
     from .services.gemini_service import GeminiService
+    from .services.lecture_service import LectureService # Import the new service
 except ImportError as e:
-    logger.error(f"Failed to import GeminiService: {e}")
-    raise
+    logging.error(f"Failed to import service classes: {e}")
+    raise # Critical error
+
+# Import database dependency provider (assuming server/database.py)
+try:
+    from .database import get_db # Import the database session dependency
+except ImportError as e:
+    logging.error(f"Failed to import get_db from database.py: {e}")
+    raise # Critical error
 
 
-# Module-level variables for caching
+logger = logging.getLogger(__name__)
+
+# Module-level variables for caching service instances
 _cached_gemini_client = None
-_cached_gemini_service = None # Cache the service instance too
+_cached_gemini_service = None
+_cached_lecture_service = None
 
+# Dependency provider for the Gemini Client (API Key version)
 def get_gemini_client():
     """
     FastAPI dependency function to get a cached Gemini client instance (API Key focus).
@@ -62,7 +73,7 @@ def get_gemini_client():
     return _cached_gemini_client
 
 
-# NEW: Dependency provider for the GeminiService
+# Dependency provider for the GeminiService
 def get_gemini_service(
     client: genai.Client = Depends(get_gemini_client) # Depends on the client dependency
 ) -> GeminiService:
@@ -73,12 +84,28 @@ def get_gemini_service(
 
     if _cached_gemini_service is None:
         logger.info("Instantiating new GeminiService (first request).")
-        # Instantiate the service, injecting the client it needs
-        _cached_gemini_service = GeminiService(client=client)
+        _cached_gemini_service = GeminiService(client=client) # Instantiate the service
     else:
         logger.debug("Using cached GeminiService.")
 
     return _cached_gemini_service
 
-# Keep or add other dependency providers here
-# def get_db_session(): ...
+
+# Dependency provider for the LectureService
+def get_lecture_service() -> LectureService:
+    """
+    FastAPI dependency function to get a cached LectureService instance.
+    DB session is passed per-method to allow service methods to be simpler.
+    """
+    global _cached_lecture_service
+
+    if _cached_lecture_service is None:
+        logger.info("Instantiating new LectureService (first request).")
+        _cached_lecture_service = LectureService() # Instantiate the service
+    else:
+        logger.debug("Using cached LectureService.")
+
+    return _cached_lecture_service
+
+# The get_db dependency is imported from database.py
+# Its signature is def get_db(): yield SessionLocal() ...

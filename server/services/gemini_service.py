@@ -2,7 +2,7 @@
 
 import logging
 import json
-from typing import Dict, Any, List # Import typing hints
+from typing import Dict, Any # Keep Dict for intermediate parsed data
 
 # Import the specific genai types used for API calls
 from google import genai
@@ -11,17 +11,12 @@ from google.genai import types
 # Import run_in_threadpool as service methods will be called from async routers
 from fastapi.concurrency import run_in_threadpool
 
-# Import any Pydantic models if your service methods are type-hinting their return values
-# (Optional, but good practice if the JSON structure is strict)
-# try:
-#     from ..models.lecture import LectureProblemsOutput
-#     from ..models.translation import TranslationOutput
-#     from ..models.conversion import LatexOutput
-# except ImportError:
-#      # Define simple placeholders or log if models are not used for typing here
-#      LectureProblemsOutput = Dict[str, Any] # Example placeholder
-#      TranslationOutput = Dict[str, Any]
-#      LatexOutput = Dict[str, Any]
+# Import the Pydantic model for AI output from schemas
+try:
+    from ..schemas.lecture import LectureProblemsOutput # Import the AI output model
+except ImportError as e:
+    logging.error(f"Failed to import Pydantic schema LectureProblemsOutput: {e}")
+    raise
 
 
 logger = logging.getLogger(__name__)
@@ -30,7 +25,7 @@ logger = logging.getLogger(__name__)
 GEMINI_FLASH_2_5 = "gemini-2.5-flash-preview-04-17"
 
 
-# Define custom service-level exceptions (optional but helpful)
+# Define custom service-level exceptions
 class GeminiServiceError(Exception):
     """Base exception for Gemini service errors."""
     pass
@@ -39,8 +34,8 @@ class GeminiJSONError(GeminiServiceError):
     """Exception raised when Gemini returns invalid JSON."""
     pass
 
-class GeminiExtractionError(GeminiServiceError):
-     """Exception raised when Gemini fails to extract expected data."""
+class GeminiResponseValidationError(GeminiServiceError):
+     """Exception raised when AI response JSON fails Pydantic validation."""
      pass
 
 
@@ -49,15 +44,13 @@ class GeminiService:
     Service class to encapsulate interactions with the Gemini API.
     """
     def __init__(self, client: genai.Client):
-        """
-        Initializes the GeminiService with an instantiated genai.Client.
-        """
+        """Initializes the GeminiService with an instantiated genai.Client."""
         self.client = client
         logger.info("GeminiService initialized.")
 
 
-    async def process_lecture_pdf(self, pdf_bytes: bytes) -> Dict[str, Any]: # Using Dict for raw JSON return
-    # If using Pydantic models: -> LectureProblemsOutput:
+    # --- Return type hint is now the Pydantic AI output model ---
+    async def process_lecture_pdf(self, pdf_bytes: bytes) -> LectureProblemsOutput:
         """
         Processes a PDF lecture file using Gemini and extracts structured data.
 
@@ -65,22 +58,25 @@ class GeminiService:
             pdf_bytes: The binary content of the PDF file.
 
         Returns:
-            A dictionary containing the extracted lecture name, group,
-            and problems in LaTeX format.
+            A LectureProblemsOutput Pydantic model instance containing
+            the extracted lecture name, group, and problems in LaTeX format.
 
         Raises:
-            GeminiServiceError: If the API call fails or returns invalid data.
+            GeminiServiceError: If the API call fails or returns an empty response.
+            GeminiJSONError: If AI returns invalid JSON.
+            GeminiResponseValidationError: If AI returns valid JSON but it doesn't
+                                         match the LectureProblemsOutput schema.
         """
         logger.info("Service method: processing lecture PDF.")
 
-        # --- Prepare Contents using Inline Data (like image-to-latex) ---
+        # --- Prepare Contents using Inline Data ---
         contents = [
             types.Content(
                 role="user",
                 parts=[
                     types.Part(inline_data=types.Blob(
-                        mime_type="application/pdf", # Specify PDF MIME type
-                        data=pdf_bytes # The bytes read from the file
+                        mime_type="application/pdf",
+                        data=pdf_bytes
                     )),
                     types.Part.from_text(text="""Extract the lecture name, target group, and all distinct math problems in LaTeX format from this PDF document. Return the output as a JSON object conforming to the specified schema."""),
                 ],
@@ -89,6 +85,8 @@ class GeminiService:
         logger.debug("Service: Constructed contents for PDF processing.")
 
         # --- Define generation config (copied from your working sample) ---
+        # The response_schema here tells the AI the desired structure.
+        # It should match the LectureProblemsOutput Pydantic model structure.
         generate_content_config = types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=genai.types.Schema(
@@ -106,12 +104,10 @@ class GeminiService:
 
 
         # --- Call generate_content_stream and collect response ---
-        # client.models.generate_content_stream is synchronous -> use run_in_threadpool
         full_json_string = ""
         try:
             logger.info(f"Service: Calling Gemini model '{GEMINI_FLASH_2_5}' (streaming)...")
 
-            # Define a sync function to run in the threadpool
             def _get_streamed_response_text():
                 text = ""
                 stream = self.client.models.generate_content_stream(
@@ -124,52 +120,51 @@ class GeminiService:
                          text += chunk.text
                 return text
 
-            # Run the synchronous iteration logic in a separate thread
             full_json_string = await run_in_threadpool(_get_streamed_response_text)
 
             logger.info("Service: Finished receiving streamed response.")
             logger.debug(f"Service: Full raw string received (first 500 chars): {full_json_string[:500]}...")
 
         except Exception as e:
-             # Catch potential genai errors or threadpool issues
              logger.error(f"Service: Error during Gemini generation streaming: {e}", exc_info=True)
-             # Raise a service-level error
              raise GeminiServiceError(f"AI content generation failed: {e}")
 
 
-        # --- Parse the collected JSON string ---
+        # --- Parse and Validate the collected JSON string ---
         if not full_json_string:
             logger.warning("Service: Received empty response string from Gemini.")
-            # Raise a service-level error
             raise GeminiServiceError("AI service returned an empty response.")
 
         try:
             # Parse the string as JSON
-            parsed_data = json.loads(full_json_string)
+            parsed_data: Dict[str, Any] = json.loads(full_json_string)
             logger.info("Service: Successfully parsed Gemini response as JSON.")
-            # In a more robust service, you might validate parsed_data against a schema here
-            # (e.g., using Pydantic, even if the router returns raw dict)
-            # try:
-            #    validated_data = LectureProblemsOutput(**parsed_data)
-            #    logger.debug("Service: Parsed data validated against Pydantic model.")
-            #    return validated_data # Return the validated Pydantic model
-            # except Exception as val_e:
-            #    logger.error(f"Service: Pydantic validation failed: {val_e}", exc_info=True)
-            #    raise GeminiExtractionError(f"AI response did not match expected schema: {val_e}")
 
-            # For now, just return the raw dictionary as requested for the router output
-            return parsed_data
+            # --- Validate parsed data against the Pydantic AI output model ---
+            logger.debug("Service: Validating parsed data against LectureProblemsOutput schema...")
+            validated_data = LectureProblemsOutput(**parsed_data)
+            logger.info("Service: Parsed data successfully validated.")
+            # --- Return the validated Pydantic model instance ---
+            return validated_data
 
         except json.JSONDecodeError as e:
             logger.error(f"Service: Failed to decode JSON response: {e}. Raw string: {full_json_string}", exc_info=True)
-            # Raise a specific service-level JSON error
             raise GeminiJSONError(f"AI service returned invalid JSON: {e}")
-        except Exception as e:
-            logger.error(f"Service: An unexpected error occurred after JSON parsing: {e}", exc_info=True)
-            # Raise a generic service-level error
-            raise GeminiServiceError(f"An internal error occurred processing the AI response: {e}")
+        except Exception as e: # Catch Pydantic ValidationError or other parsing issues
+            logger.error(f"Service: An error occurred during JSON parsing or Pydantic validation: {e}", exc_info=True)
+            raise GeminiResponseValidationError(f"AI response did not match expected data structure: {e}")
 
+    # --- Add other Gemini interaction methods here (translate_latex, image_to_latex, etc.) ---
+    # Copy/adapt these from your main.py and the previous GeminiService example
+    # Make sure they return the appropriate types (e.g., str, or Pydantic models)
 
+    async def translate_latex(self, latex_text: str) -> str:
+        # ... implementation ... (as in previous GeminiService example)
+        pass # Replace with actual implementation
+
+    async def image_to_latex(self, image_bytes: bytes, mime_type: str) -> str:
+        # ... implementation ... (as in previous GeminiService example)
+        pass # Replace with actual implementation
     # --- Add other Gemini interaction methods here ---
 
     async def translate_latex(self, latex_text: str) -> str:

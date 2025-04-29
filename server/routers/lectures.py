@@ -3,36 +3,54 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile
-# Remove genai, types, json, run_in_threadpool as service handles them:
-# from google import genai
-# from google.genai import types
-# import json
-# from fastapi.concurrency import run_in_threadpool
+from sqlalchemy.orm import Session # Import Session type for the database dependency
 
-logger = logging.getLogger(__name__)
-
-# Import the service and its potential exceptions
+# Import service classes and their potential exceptions
 try:
-    from ..services.gemini_service import GeminiService, GeminiServiceError, GeminiJSONError, GeminiExtractionError
+    from ..services.gemini_service import GeminiService, GeminiServiceError, GeminiJSONError, GeminiResponseValidationError
+    from ..services.lecture_service import LectureService, LectureServiceError # Import the new service and its errors
 except ImportError as e:
-     logging.error(f"Failed to import GeminiService from services: {e}")
+     logging.error(f"Failed to import service classes: {e}")
      raise
 
-# Import the service dependency provider
+# Import dependency providers
 try:
-    from ..dependencies import get_gemini_service
+    # Import dependencies for both services and the database session
+    from ..dependencies import get_gemini_service, get_lecture_service
+    from ..database import get_db # Import the database session dependency
 except ImportError as e:
-    logging.error(f"Failed to import get_gemini_service from dependencies: {e}")
+    logging.error(f"Failed to import dependencies: {e}")
+    raise
+
+# Import Pydantic schemas
+try:
+    # We need LectureProblemsOutput schema to define the type received from GeminiService
+    from ..schemas.lecture import LectureProblemsOutput
+    # We need LectureSchema schema to define the API response structure
+    from ..schemas.lecture import LectureSchema # Import the Pydantic schema for Lecture
+except ImportError as e:
+    logging.error(f"Failed to import Pydantic schemas: {e}")
     raise
 
 
-# Your APIRouter instance
+# Import the SQLAlchemy ORM model for Lecture
+try:
+    from ..models.lecture import Lecture # Import the SQLAlchemy Lecture model
+except ImportError as e:
+    logging.error(f"Failed to import SQLAlchemy Lecture model: {e}")
+    raise
+
+
+logger = logging.getLogger(__name__)
+
+
+# APIRouter instance
 router = APIRouter(
     prefix="/lectures", # Keep your prefix
     tags=["Lecture Management"]
 )
 
-# Your existing hello route
+# Minimal Hello GET Route (Keep this)
 @router.get(
     "/hello",
     summary="Basic Hello endpoint",
@@ -42,20 +60,25 @@ async def read_lectures_hello():
     return {"message": "Hello from the Lectures router"}
 
 
-# --- The Process PDF Route (Simplified) ---
+# --- The Process PDF Route (Saves to DB) ---
 @router.post(
     "/process-pdf",
-    # REMOVED: response_model=LectureProblemsOutput, # Still returning raw JSON
-    summary="Process PDF Lecture and Extract Problems (Returns Raw JSON)",
+    # --- Set response_model to the LectureSchema ---
+    response_model=LectureSchema, # API returns the created Lecture object (serialized by this schema)
+    summary="Process PDF Lecture, Extract Data, and Save to Database",
+    status_code=status.HTTP_201_CREATED # Use 201 Created for resource creation
 )
+# --- Add dependencies for services and DB session ---
 async def process_lecture_pdf_upload(
     file: UploadFile = File(..., description="PDF file containing the lecture and math problem"),
-    # Inject the GeminiService instance instead of the raw client
-    gemini_service: GeminiService = Depends(get_gemini_service)
-):
+    gemini_service: GeminiService = Depends(get_gemini_service), # Inject the Gemini service
+    lecture_service: LectureService = Depends(get_lecture_service), # Inject the new Lecture service
+    db: Session = Depends(get_db) # Inject the database session for this request
+) -> LectureSchema: # Update return type hint
     """
-    Receives a PDF file, uses the GeminiService to process it, and returns
-    the extracted JSON data.
+    Receives a PDF file, uses the GeminiService to extract data,
+    uses the LectureService to save the extracted data to the database,
+    and returns the created Lecture object (serialized by LectureSchema).
     """
     logger.info(f"Router: Received PDF file upload request: {file.filename} (type: {file.content_type})")
 
@@ -82,31 +105,60 @@ async def process_lecture_pdf_upload(
     finally:
         await file.close()
 
-    # --- 3. Call the Service Method ---
+    # --- 3. Call the Gemini Service to Extract Data ---
+    extracted_data: LectureProblemsOutput # Type hint for clarity
     try:
-        logger.info("Router: Calling GeminiService.process_lecture_pdf...")
-        # Pass the raw bytes to the service
+        logger.info("Router: Calling GeminiService.process_lecture_pdf for extraction...")
+        # Call the Gemini service, which returns a validated LectureProblemsOutput Pydantic instance
         extracted_data = await gemini_service.process_lecture_pdf(pdf_bytes)
-        logger.info("Router: Received data from GeminiService.")
-        # Return the result - FastAPI will serialize the dictionary to JSON
-        return extracted_data
+        logger.info("Router: Received extracted and validated data from GeminiService.")
 
-    except GeminiJSONError as e:
-        logger.error(f"Router: Service returned JSON error: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) # Use service error detail
+    # --- Error handling for the Gemini Service call ---
+    # Catch specific errors raised by the GeminiService methods
+    except (GeminiJSONError, GeminiResponseValidationError) as e:
+        logger.error(f"Router: Service returned data validation error during extraction: {e}", exc_info=True)
+        # 500 Internal Server Error indicates the *AI's response* had an issue
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error processing AI response data: {e}")
 
     except GeminiServiceError as e:
-        logger.error(f"Router: Service error during PDF processing: {e}", exc_info=True)
+        logger.error(f"Router: Generic Gemini Service error during extraction: {e}", exc_info=True)
+         # 500 for other AI service failures (connection, API error, etc.)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error from AI service: {e}")
 
     except Exception as e:
-        logger.error(f"Router: An unexpected error occurred: {e}", exc_info=True)
-        # Catch any other unexpected errors and return a generic server error
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred.")
+        logger.error(f"Router: An unexpected error occurred during extraction: {e}", exc_info=True)
+        # Catch any other unexpected errors during the extraction process
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred during data extraction.")
 
 
-# Keep other router definitions or code below if any
-# You would create server/routers/translation.py and server/routers/conversion.py
-# following this pattern (import service, define router, define routes, call service methods, handle errors)
-# and include them in main.py
-# @router.include_router(...)
+    # --- 4. Call the Lecture Service to Save Data to DB ---
+    created_lecture_orm: Lecture # Type hint for clarity (SQLAlchemy model)
+    try:
+        logger.info("Router: Calling LectureService.create_lecture_and_problems to save to DB...")
+        # Pass the DB session (injected by Depends) and the extracted Pydantic data (from GeminiService)
+        created_lecture_orm = lecture_service.create_lecture_and_problems(db=db, lecture_data=extracted_data)
+        logger.info(f"Router: Successfully saved lecture (ID: {created_lecture_orm.id}) and problems to DB.")
+
+    # --- Error handling for the Database Service call ---
+    # Catch specific errors raised by the LectureService methods
+    except LectureServiceError as e:
+         logger.error(f"Router: Lecture Service error saving data to DB: {e}", exc_info=True)
+         # A DB error should generally be a 500 Internal Server Error
+         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to save extracted data to database: {e}")
+
+    except Exception as e:
+         # Catch any other unexpected errors during the DB saving process
+         logger.error(f"Router: An unexpected error occurred while saving data to DB: {e}", exc_info=True)
+         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred while saving data.")
+
+
+    # --- 5. Return the Created ORM Object ---
+    # FastAPI will automatically serialize the SQLAlchemy ORM object (created_lecture_orm)
+    # using the LectureSchema defined in the 'response_model' decorator parameter.
+    # Because LectureSchema has orm_mode=True and includes the 'problems' relationship
+    # (which itself uses ProblemSchema with orm_mode=True), FastAPI will traverse
+    # the ORM object's relationships and build the correct JSON response.
+    return created_lecture_orm
+
+# Keep other router definitions below if any
+# ...
