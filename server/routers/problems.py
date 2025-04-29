@@ -12,8 +12,8 @@ from typing import List
 from ..database import get_db
 from ..models.problem import Problem as DBProblem # The SQLAlchemy model
 
-from ..schemas.problem_schema import ProblemSchema as Task
-from ..services import task_service
+from ..schemas.problem_schema import ProblemSchema as Problem
+from ..services import problem_service
 
 # --- Minimal Input Model (Inline) ---
 # Define this directly in the router file for this quick test
@@ -61,37 +61,37 @@ async def quick_create_problem(
         )
 
 
-@router.get("/", response_model=List[Task])
-def all_tasks(db: Session = Depends(get_db)):
+@router.get("/", response_model=List[Problem])
+def all_problems(db: Session = Depends(get_db)):
   
-    return task_service.get_all(db)
+    return problem_service.get_all(db)
 
-@router.get("/{task_id}", response_model=Task)
-def get_task(task_id: int, db: Session = Depends(get_db)):
+@router.get("/{problem_id}", response_model=Problem)
+def get_problem(problem_id: int, db: Session = Depends(get_db)):
   
-    task = task_service.get_one(db, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return task
+    problem = problem_service.get_one(db, problem_id)
+    if not problem:
+        raise HTTPException(status_code=404, detail="Problem not found")
+    return problem
 
-@router.post("/", response_model=Task, status_code=201)
-def create_task(task: Task, db: Session = Depends(get_db)):
+@router.post("/", response_model=Problem, status_code=201)
+def create_problem(problem: Problem, db: Session = Depends(get_db)):
    
-    return task_service.create(db, task)
+    return problem_service.create(db, problem)
 
-@router.put("/{task_id}", response_model=Task)
-def update_task(task_id: int, new_task: Task, db: Session = Depends(get_db)):
+@router.put("/{problem_id}", response_model=Problem)
+def update_problem(problem_id: int, new_problem: Problem, db: Session = Depends(get_db)):
   
-    task = task_service.update(db, task_id, new_task)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return task
+    Problem = problem_service.update(db, problem_id, new_problem)
+    if not problem:
+        raise HTTPException(status_code=404, detail="Problem not found")
+    return problem
 
-@router.delete("/{task_id}", status_code=204)
-def delete_task(task_id: int, db: Session = Depends(get_db)):
+@router.delete("/{problem_id}", status_code=204)
+def delete_problem(problem_id: int, db: Session = Depends(get_db)):
   
-    success = task_service.delete(db, task_id)
+    success = problem_service.delete(db, problem_id)
     if not success:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return {"message": "Task deleted successfully"}
+        raise HTTPException(status_code=404, detail="Problem not found")
+    return {"message": "Problem deleted successfully"}
 
