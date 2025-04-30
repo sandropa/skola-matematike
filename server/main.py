@@ -10,7 +10,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 import mimetypes # Import mimetypes for guessing content type if needed (though UploadFile provides it)
 
-from .routers import problems
+from .routers import problems, lectures
 
 # Import the settings from your config file (assuming config.py loads .env)
 from .config import settings
@@ -34,6 +34,7 @@ app = FastAPI(
 )
 
 app.include_router(problems.router)
+app.include_router(lectures.router)
 
 # --- Pydantic Models ---
 class LatexInput(BaseModel):

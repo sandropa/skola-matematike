@@ -63,7 +63,7 @@ async def quick_create_problem(
 
 @router.get("/", response_model=List[Problem])
 def all_problems(db: Session = Depends(get_db)):
-  
+    print("ULAZIIIIII")
     return problem_service.get_all(db)
 
 @router.get("/{problem_id}", response_model=Problem)
