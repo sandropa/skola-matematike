@@ -72,7 +72,6 @@ class ProblemsetService:
         for latex_content in lecture_data.problems_latex:
             db_problem = Problem(
                 latex_content=latex_content,
-                image_filename=None,
             )
             problem_orms.append(db_problem)
             logger.debug(f"Service: Created ORM object for problem (first 30 chars): '{latex_content[:30]}...'")
