@@ -1,19 +1,15 @@
-# server/routers/lectures.py
-
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile
 from sqlalchemy.orm import Session # Import Session type for the database dependency
 
-# Import service classes and their potential exceptions
 try:
     from ..services.gemini_service import GeminiService, GeminiServiceError, GeminiJSONError, GeminiResponseValidationError
-    from ..services.lecture_service import LectureService, LectureServiceError # Import the new service and its errors
+    from ..services.problemset_service import ProblemsetService, ProblemsetServiceError # Import the new service and its errors
 except ImportError as e:
      logging.error(f"Failed to import service classes: {e}")
      raise
 
-# Import dependency providers
 try:
     # Import dependencies for both services and the database session
     from ..dependencies import get_gemini_service, get_lecture_service
@@ -25,9 +21,9 @@ except ImportError as e:
 # Import Pydantic schemas
 try:
     # We need LectureProblemsOutput schema to define the type received from GeminiService
-    from ..schemas.lecture import LectureProblemsOutput
+    from ..schemas.problemset import LectureProblemsOutput
     # We need LectureSchema schema to define the API response structure
-    from ..schemas.lecture import LectureSchema # Import the Pydantic schema for Lecture
+    from ..schemas.problemset import ProblemsetSchema # Import the Pydantic schema for Lecture
 except ImportError as e:
     logging.error(f"Failed to import Pydantic schemas: {e}")
     raise
@@ -35,9 +31,9 @@ except ImportError as e:
 
 # Import the SQLAlchemy ORM model for Lecture
 try:
-    from ..models.lecture import Lecture # Import the SQLAlchemy Lecture model
+    from ..models.problemset import Problemset # Import the SQLAlchemy Lecture model
 except ImportError as e:
-    logging.error(f"Failed to import SQLAlchemy Lecture model: {e}")
+    logging.error(f"Failed to import SQLAlchemy Problemset model: {e}")
     raise
 
 
@@ -64,7 +60,7 @@ async def read_lectures_hello():
 @router.post(
     "/process-pdf",
     # --- Set response_model to the LectureSchema ---
-    response_model=LectureSchema, # API returns the created Lecture object (serialized by this schema)
+    response_model=ProblemsetSchema, # API returns the created Lecture object (serialized by this schema)
     summary="Process PDF Lecture, Extract Data, and Save to Database",
     status_code=status.HTTP_201_CREATED # Use 201 Created for resource creation
 )
@@ -72,9 +68,9 @@ async def read_lectures_hello():
 async def process_lecture_pdf_upload(
     file: UploadFile = File(..., description="PDF file containing the lecture and math problem"),
     gemini_service: GeminiService = Depends(get_gemini_service), # Inject the Gemini service
-    lecture_service: LectureService = Depends(get_lecture_service), # Inject the new Lecture service
+    lecture_service: ProblemsetService = Depends(get_lecture_service), # Inject the new Lecture service
     db: Session = Depends(get_db) # Inject the database session for this request
-) -> LectureSchema: # Update return type hint
+) -> ProblemsetSchema: # Update return type hint
     """
     Receives a PDF file, uses the GeminiService to extract data,
     uses the LectureService to save the extracted data to the database,
@@ -132,7 +128,7 @@ async def process_lecture_pdf_upload(
 
 
     # --- 4. Call the Lecture Service to Save Data to DB ---
-    created_lecture_orm: Lecture # Type hint for clarity (SQLAlchemy model)
+    created_lecture_orm: Problemset # Type hint for clarity (SQLAlchemy model)
     try:
         logger.info("Router: Calling LectureService.create_lecture_and_problems to save to DB...")
         # Pass the DB session (injected by Depends) and the extracted Pydantic data (from GeminiService)
@@ -141,7 +137,7 @@ async def process_lecture_pdf_upload(
 
     # --- Error handling for the Database Service call ---
     # Catch specific errors raised by the LectureService methods
-    except LectureServiceError as e:
+    except ProblemsetServiceError as e:
          logger.error(f"Router: Lecture Service error saving data to DB: {e}", exc_info=True)
          # A DB error should generally be a 500 Internal Server Error
          raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to save extracted data to database: {e}")

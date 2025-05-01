@@ -11,9 +11,9 @@ class Problem(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Define relationship placeholder (will link via Lecture model)
-    lectures = relationship(
-        "Lecture",
-        secondary="lecture_problems_association", # Name of association table
+    problemsets = relationship(
+        "Problemset",
+        secondary="problemset_problem_association", # Name of association table
         back_populates="problems"
     )
 

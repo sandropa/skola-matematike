@@ -1,3 +1,3 @@
 from ..database import Base
 from .problem import Problem
-from .lecture import Lecture, lecture_problems_association
+from .problemset import Problemset, problemset_problem_association

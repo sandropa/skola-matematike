@@ -35,7 +35,7 @@ app = FastAPI(
 )
 
 app.include_router(problems.router)
-app.include_router(lectures.router)
+app.include_router(lectures.router) # todo maybe replace with problemsets or add more routes
 
 # --- Pydantic Models ---
 class LatexInput(BaseModel):

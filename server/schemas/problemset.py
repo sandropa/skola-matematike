@@ -1,11 +1,7 @@
-# server/schemas/lecture.py
-
 from pydantic import BaseModel, Field
-from typing import Optional, List # Need List for problems
+from typing import Optional, List
 from datetime import datetime
-from pydantic import ConfigDict # For Pydantic v2
 
-# Import the Pydantic schema for Problem from the same schemas directory
 from .problem import ProblemSchema
 
 
@@ -18,18 +14,15 @@ class LectureProblemsOutput(BaseModel):
     problems_latex: List[str] = Field(..., description="A list containing the extracted LaTeX source string for each distinct problem identified in the document.")
 
 
-class LectureSchema(BaseModel):
+class ProblemsetSchema(BaseModel):
     """Pydantic schema for representing a Lecture object in API responses."""
-    id: int # Assuming ID is returned from DB
+    id: int 
     name: str
     group_name: str
     created_at: datetime
-    # Include the problems relationship, represented as a list of ProblemSchema
-    problems: List[ProblemSchema] = [] # Default to empty list if no problems
+    type: str = Field(..., description="One of: predavanje, samostalan_rad, test, shortlist.")
 
-    # Pydantic v1 compatibility
+    problems: List[ProblemSchema] = []
+
     class Config:
         orm_mode = True
-
-    # Pydantic v2 configuration (alternative to Config)
-    # model_config = ConfigDict(from_attributes=True)

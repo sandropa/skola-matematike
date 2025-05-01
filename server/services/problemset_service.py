@@ -1,21 +1,17 @@
-# server/services/lecture_service.py
-
 import logging
-from typing import List # Needed for type hints
+from typing import List
 
-# Import SQLAlchemy Session and models
 from sqlalchemy.orm import Session
 try:
-    from ..models.lecture import Lecture # Import the SQLAlchemy Lecture ORM model
-    from ..models.problem import Problem # Import the SQLAlchemy Problem ORM model
-    # No need to import the association table here unless directly manipulated
+    from ..models.problemset import Problemset
+    from ..models.problem import Problem 
+    
 except ImportError as e:
     logging.error(f"Failed to import SQLAlchemy models: {e}")
     raise
 
-# Import the Pydantic model from the AI output
 try:
-    from ..schemas.lecture import LectureProblemsOutput # Import the Pydantic AI output model
+    from ..schemas.problemset import LectureProblemsOutput 
 except ImportError as e:
     logging.error(f"Failed to import LectureProblemsOutput schema: {e}")
     raise
@@ -23,13 +19,12 @@ except ImportError as e:
 
 logger = logging.getLogger(__name__)
 
-# Define custom service-level exception for DB operations
-class LectureServiceError(Exception):
+class ProblemsetServiceError(Exception):
     """Base exception for Lecture service errors."""
     pass
 
 
-class LectureService:
+class ProblemsetService:
     """
     Service class to handle database operations related to Lectures and Problems.
     """
@@ -46,9 +41,9 @@ class LectureService:
         self,
         db: Session, # Inject the database session
         lecture_data: LectureProblemsOutput # The validated data from the AI
-    ) -> Lecture: # Type hint return as SQLAlchemy Lecture ORM model
+    ) -> Problemset: # Type hint return as SQLAlchemy Lecture ORM model
         """
-        Creates a new Lecture and associated Problem entries in the database.
+        Creates a new Problemset and associated Problem entries in the database.
 
         Args:
             db: The SQLAlchemy database session.
@@ -64,10 +59,9 @@ class LectureService:
         logger.info(f"Service: Creating lecture '{lecture_data.lecture_name}' and {len(lecture_data.problems_latex)} problems in DB.")
 
         # --- 1. Create the Lecture ORM object ---
-        db_lecture = Lecture(
+        db_lecture = Problemset(
             name=lecture_data.lecture_name,
             group_name=lecture_data.group_name,
-            # created_at is set automatically by server_default
         )
 
         # --- 2. Process and Create Problem ORM objects ---
@@ -78,8 +72,7 @@ class LectureService:
         for latex_content in lecture_data.problems_latex:
             db_problem = Problem(
                 latex_content=latex_content,
-                image_filename=None, # Since it's from PDF extraction, no image
-                # created_at is set automatically
+                image_filename=None,
             )
             problem_orms.append(db_problem)
             logger.debug(f"Service: Created ORM object for problem (first 30 chars): '{latex_content[:30]}...'")
@@ -104,6 +97,6 @@ class LectureService:
             db.rollback() # Roll back the transaction in case of errors
             logger.error(f"Service: Failed to create lecture and problems in DB: {e}", exc_info=True)
             # Raise a service-level error
-            raise LectureServiceError(f"Failed to save extracted data to database: {e}")
+            raise ProblemsetServiceError(f"Failed to save extracted data to database: {e}")
 
     # Add other database interaction methods here if needed (e.g., get_lecture_by_id)

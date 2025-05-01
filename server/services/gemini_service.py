@@ -13,7 +13,7 @@ from fastapi.concurrency import run_in_threadpool
 
 # Import the Pydantic model for AI output from schemas
 try:
-    from ..schemas.lecture import LectureProblemsOutput # Import the AI output model
+    from ..schemas.problemset import LectureProblemsOutput # Import the AI output model
 except ImportError as e:
     logging.error(f"Failed to import Pydantic schema LectureProblemsOutput: {e}")
     raise
