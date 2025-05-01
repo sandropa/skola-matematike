@@ -82,7 +82,7 @@ def create_problem(problem: Problem, db: Session = Depends(get_db)):
 @router.put("/{problem_id}", response_model=Problem)
 def update_problem(problem_id: int, new_problem: Problem, db: Session = Depends(get_db)):
   
-    Problem = problem_service.update(db, problem_id, new_problem)
+    problem = problem_service.update(db, problem_id, new_problem)
     if not problem:
         raise HTTPException(status_code=404, detail="Problem not found")
     return problem
