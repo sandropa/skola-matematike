@@ -3,7 +3,6 @@
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
-from pydantic import ConfigDict # For Pydantic v2, use ConfigDict
 
 class ProblemSchema(BaseModel):
     """Pydantic schema for representing a Problem object in API responses."""

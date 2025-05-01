@@ -12,7 +12,7 @@ from typing import List
 from ..database import get_db
 from ..models.problem import Problem as DBProblem # The SQLAlchemy model
 
-from ..schemas.problem_schema import ProblemSchema as Problem
+from ..schemas.problem import ProblemSchema as Problem
 from ..services import problem_service
 
 # --- Minimal Input Model (Inline) ---

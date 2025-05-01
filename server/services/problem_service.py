@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from ..models.problem import Problem as DBProblem 
-from ..schemas.problem_schema import ProblemSchema  
+from ..schemas.problem import ProblemSchema  
 
 def get_all(db: Session):
     return db.query(DBProblem).all()
