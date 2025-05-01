@@ -6,6 +6,7 @@ class ProblemSchema(BaseModel):
     """Pydantic schema for representing a Problem object in API responses."""
     id: int
     latex_content: str
+    category: Optional[str]
     created_at: datetime
 
     class Config:

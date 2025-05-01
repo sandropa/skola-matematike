@@ -7,6 +7,7 @@ class Problem(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     latex_content = Column(Text, nullable=False)
+    category = Column(String(20), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Define relationship placeholder (will link via Lecture model)
