@@ -24,13 +24,13 @@ TASK_TYPE = "RETRIEVAL_DOCUMENT" # Or appropriate task type
 
 # Define input and output file paths (relative to this script's location)
 # Assumes script is OUTSIDE data/, but points INTO data/
-DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data') # Path to experiments/data/
+DATA_DIR = os.path.join(os.path.dirname(__file__), 'data') # Path to experiments/data/
 INPUT_JSON_FILE = os.path.join(DATA_DIR, 'imo_shortlist_2023.json')
 OUTPUT_EMBEDDINGS_FILE = os.path.join(DATA_DIR, 'imo_2023_embeddings.npy') # Save embeddings as numpy array
 OUTPUT_METADATA_FILE = os.path.join(DATA_DIR, 'imo_2023_metadata.json') # Save corresponding IDs/categories
 
 # Delay between API calls (seconds)
-API_DELAY = 1.5 # Slightly increased delay might help with rate limits
+API_DELAY = 7 # Slightly increased delay might help with rate limits
 # --- End Configuration ---
 
 def load_problems(filepath):
@@ -63,13 +63,14 @@ def load_existing_progress(embeddings_filepath, metadata_filepath):
         try:
             with open(metadata_filepath, 'r', encoding='utf-8') as f:
                 existing_metadata = json.load(f)
-            # Convert list of lists/arrays back to numpy array if needed after loading JSON
-            # For npy, just load it:
-            loaded_npy = np.load(embeddings_filepath)
+
+            # --- Load NumPy array with allow_pickle=True ---
+            loaded_npy = np.load(embeddings_filepath, allow_pickle=True)
+            # ---------------------------------------------
             existing_embeddings = list(loaded_npy) # Work with a list for easier appending
 
             if len(existing_metadata) != len(existing_embeddings):
-                 logging.error("Mismatch between loaded metadata count and embeddings count. Starting fresh.")
+                 logging.error("Mismatch between loaded metadata count ({}) and embeddings count ({}). Starting fresh.".format(len(existing_metadata), len(existing_embeddings)))
                  return set(), [], [] # Return empty if inconsistent
 
             for item in existing_metadata:
@@ -134,7 +135,6 @@ def generate_embeddings_resumable(client, problems, processed_ids, current_embed
 
         # --- Skip if already processed ---
         if problem_id in processed_ids:
-            # Log skipping less frequently to avoid clutter
             if (i + 1) % 10 == 0 or i == 0:
                  logging.debug(f"Skipping problem {i+1}/{total_problems}: {problem_id} (already processed).")
             continue
@@ -149,20 +149,26 @@ def generate_embeddings_resumable(client, problems, processed_ids, current_embed
         try:
             # --- Use the EXACT client.models.embed_content structure ---
             result = client.models.embed_content(
-                model=EMBEDDING_MODEL,     # Use model name WITHOUT 'models/' prefix
-                contents=latex_content,    # Use the keyword 'contents'
+                model=EMBEDDING_MODEL,
+                contents=latex_content,
             )
 
-            # --- Extract the embedding vector ---
+            # --- Extract the ACTUAL numerical vector using .values ---
+            numerical_vector = None # Initialize
             if hasattr(result, 'embeddings') and result.embeddings:
-                embedding_vector = result.embeddings[0]
+                # result.embeddings[0] is likely the ContentEmbedding object
+                content_embedding_obj = result.embeddings[0]
+                if hasattr(content_embedding_obj, 'values') and content_embedding_obj.values:
+                    # Access the list of floats via the .values attribute
+                    numerical_vector = content_embedding_obj.values # <--- THE KEY CHANGE
+                else:
+                    logging.warning(f"ContentEmbedding object for {problem_id} lacks .values attribute. Object: {content_embedding_obj}")
             else:
-                 logging.warning(f"Could not extract embedding from result for problem {problem_id}. Result structure: {result}")
-                 embedding_vector = None
+                 logging.warning(f"Could not extract embedding object from result for problem {problem_id}. Result structure: {result}")
 
             # --- If successful, append and SAVE progress ---
-            if embedding_vector:
-                current_embeddings.append(embedding_vector)
+            if numerical_vector is not None: # Check if we got the vector
+                current_embeddings.append(numerical_vector) # Append the list of floats
                 current_metadata.append({'problem_id': problem_id, 'category': category})
                 processed_ids.add(problem_id) # Add to processed set immediately
                 newly_processed_count += 1
@@ -170,16 +176,14 @@ def generate_embeddings_resumable(client, problems, processed_ids, current_embed
                 # Save after each successful call
                 save_progress(current_embeddings, current_metadata, OUTPUT_EMBEDDINGS_FILE, OUTPUT_METADATA_FILE)
             else:
-                 logging.warning(f"Failed for {problem_id} (Embedding not found in result).")
+                 logging.warning(f"Failed for {problem_id} (Embedding vector not extracted).")
 
         except exceptions.ResourceExhausted as e:
              logging.error(f"Failed for {problem_id} (Rate limit likely exceeded: {e}). Stopping generation.")
              break # Stop processing loop
         except Exception as e:
             logging.error(f"Failed for {problem_id} (API Error: {e}).", exc_info=True)
-            # Decide whether to continue or stop on other errors
-            # For now, let's stop on any API error to be safe
-            break
+            break # Stop on other errors too
 
         # Add a delay between requests AFTER attempting an API call
         logging.debug(f"Waiting {API_DELAY}s before next request...")
@@ -187,7 +191,6 @@ def generate_embeddings_resumable(client, problems, processed_ids, current_embed
 
     logging.info(f"Embedding generation loop finished. Newly processed in this run: {newly_processed_count}.")
     return current_embeddings, current_metadata
-
 
 # --- Main Execution ---
 if __name__ == "__main__":

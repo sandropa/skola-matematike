@@ -70,3 +70,5 @@ htmlcov/
 logs/
 
 venv/
+
+*.npy
