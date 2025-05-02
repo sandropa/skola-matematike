@@ -9,18 +9,18 @@ from .problem import ProblemSchema
 # This represents the data *received directly from the AI*
 class LectureProblemsOutput(BaseModel):
     """Pydantic model for the raw JSON output structure from the AI."""
-    lecture_name: str = Field(..., description="The main title or name of the lecture topic found in the document.")
-    group_name: str = Field(..., description="The target group for the lecture (e.g., 'Početna grupa', 'Srednja grupa', 'Napredna grupa', 'Predolimpijska grupa', 'Olimpijska grupa').")
+    title: str = Field(..., description="The title of the problemset.")
+    type: str = Field(..., description="The type of the problemset.")
+    part_of: str = Field(..., description="What program this is part of (e.g., 'skola matematike', 'ljetni kamp', 'zimski kamp').")
     problems_latex: List[str] = Field(..., description="A list containing the extracted LaTeX source string for each distinct problem identified in the document.")
 
 
 class ProblemsetSchema(BaseModel):
-    """Pydantic schema for representing a Lecture object in API responses."""
+    """Pydantic schema for representing a Problemset object in API responses."""
     id: int 
-    name: str
-    group_name: str
-    created_at: datetime
-    type: str = Field(..., description="One of: predavanje, samostalan_rad, test, shortlist.")
+    title: str
+    type: str
+    part_of: str
 
     problems: List[ProblemSchema] = []
 

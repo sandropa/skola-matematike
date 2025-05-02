@@ -1,7 +1,5 @@
 '''
-This file is currently mostly for testing. 
-We can use it to see that we can insert a problem into 
-the database using this route
+API routes for problem management.
 '''
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -19,17 +17,15 @@ from ..services import problem_service
 # Create an API router instance
 router = APIRouter(
     prefix="/problems",
-    tags=["Problems (Quick Test)"],
+    tags=["Problems"],
 )
 
 @router.get("/", response_model=List[Problem])
 def all_problems(db: Session = Depends(get_db)):
-  
     return problem_service.get_all(db)
 
 @router.get("/{problem_id}", response_model=Problem)
 def get_problem(problem_id: int, db: Session = Depends(get_db)):
-  
     problem = problem_service.get_one(db, problem_id)
     if not problem:
         raise HTTPException(status_code=404, detail="Problem not found")
@@ -37,12 +33,10 @@ def get_problem(problem_id: int, db: Session = Depends(get_db)):
 
 @router.post("/", response_model=Problem, status_code=201)
 def create_problem(problem: Problem, db: Session = Depends(get_db)):
-   
     return problem_service.create(db, problem)
 
 @router.put("/{problem_id}", response_model=Problem)
 def update_problem(problem_id: int, new_problem: Problem, db: Session = Depends(get_db)):
-  
     problem = problem_service.update(db, problem_id, new_problem)
     if not problem:
         raise HTTPException(status_code=404, detail="Problem not found")
@@ -50,7 +44,6 @@ def update_problem(problem_id: int, new_problem: Problem, db: Session = Depends(
 
 @router.delete("/{problem_id}", status_code=204)
 def delete_problem(problem_id: int, db: Session = Depends(get_db)):
-  
     success = problem_service.delete(db, problem_id)
     if not success:
         raise HTTPException(status_code=404, detail="Problem not found")

@@ -1,3 +1,4 @@
 from ..database import Base
-from .problem import Problem
-from .problemset import Problemset, problemset_problem_association
+from .problem import Problem, CategoryEnum
+from .problemset import Problemset, ProgramTypeEnum
+from .problemset_problems import ProblemsetProblems

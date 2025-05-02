@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 try:
     from ..models.problemset import Problemset
     from ..models.problem import Problem 
-    
+    from ..models.problemset_problems import ProblemsetProblems
 except ImportError as e:
     logging.error(f"Failed to import SQLAlchemy models: {e}")
     raise
@@ -20,82 +20,87 @@ except ImportError as e:
 logger = logging.getLogger(__name__)
 
 class ProblemsetServiceError(Exception):
-    """Base exception for Lecture service errors."""
+    """Base exception for Problemset service errors."""
     pass
 
 
 class ProblemsetService:
     """
-    Service class to handle database operations related to Lectures and Problems.
+    Service class to handle database operations related to Problemsets and Problems.
     """
     def __init__(self):
         """
-        LectureService doesn't need dependencies injected at init for this simple case,
+        ProblemsetService doesn't need dependencies injected at init for this simple case,
         as the DB session is passed per-method.
         """
-        logger.info("LectureService initialized.")
+        logger.info("ProblemsetService initialized.")
 
-    # Method to create a Lecture and its associated Problems in the DB
-    # This method takes the validated Pydantic data and the DB session
-    def create_lecture_and_problems(
+    # Method to create a Problemset and its associated Problems in the DB
+    def create_problemset_and_problems(
         self,
-        db: Session, # Inject the database session
-        lecture_data: LectureProblemsOutput # The validated data from the AI
-    ) -> Problemset: # Type hint return as SQLAlchemy Lecture ORM model
+        db: Session, 
+        problemset_data: LectureProblemsOutput 
+    ) -> Problemset:
         """
         Creates a new Problemset and associated Problem entries in the database.
 
         Args:
             db: The SQLAlchemy database session.
-            lecture_data: A LectureProblemsOutput Pydantic instance
+            problemset_data: A LectureProblemsOutput Pydantic instance
                           containing the extracted data.
 
         Returns:
-            The newly created SQLAlchemy Lecture ORM object.
+            The newly created SQLAlchemy Problemset ORM object.
 
         Raises:
-            LectureServiceError: If a database error occurs during creation.
+            ProblemsetServiceError: If a database error occurs during creation.
         """
-        logger.info(f"Service: Creating lecture '{lecture_data.lecture_name}' and {len(lecture_data.problems_latex)} problems in DB.")
+        logger.info(f"Service: Creating problemset '{problemset_data.title}' and {len(problemset_data.problems_latex)} problems in DB.")
 
-        # --- 1. Create the Lecture ORM object ---
-        db_lecture = Problemset(
-            name=lecture_data.lecture_name,
-            group_name=lecture_data.group_name,
+        # Create the Problemset ORM object
+        db_problemset = Problemset(
+            title=problemset_data.title,
+            type=problemset_data.type,
+            part_of=problemset_data.part_of
         )
 
-        # --- 2. Process and Create Problem ORM objects ---
-        # Here, we create a new Problem ORM object for each LaTeX string extracted
-        # If you wanted to check for existing problems and reuse them, this logic
-        # would involve querying the 'db' session.
+        # Process and Create Problem ORM objects
         problem_orms = []
-        for latex_content in lecture_data.problems_latex:
+        for latex_text in problemset_data.problems_latex:
             db_problem = Problem(
-                latex_content=latex_content,
+                latex_text=latex_text,
+                category='N'  # Default category, can be updated later
             )
             problem_orms.append(db_problem)
-            logger.debug(f"Service: Created ORM object for problem (first 30 chars): '{latex_content[:30]}...'")
+            logger.debug(f"Service: Created ORM object for problem (first 30 chars): '{latex_text[:30]}...'")
 
+        # Add problems to the database first so they have IDs
+        db.add_all(problem_orms)
+        db.flush()  # Flush to get IDs without committing
+        
+        # Add the problemset to get its ID
+        db.add(db_problemset)
+        db.flush()
+        
+        # Create associations between problemset and problems
+        for problem in problem_orms:
+            association = ProblemsetProblems(
+                id_problem=problem.id,
+                id_problemset=db_problemset.id
+            )
+            db.add(association)
 
-        # --- 3. Associate Problems with the Lecture ---
-        # SQLAlchemy handles the association table implicitly when you append Problem objects
-        # to the 'problems' relationship list of the Lecture object.
-        db_lecture.problems.extend(problem_orms)
-        logger.debug(f"Service: Associated {len(problem_orms)} problems with the lecture ORM object.")
-
-        # --- 4. Add to Session, Commit, and Refresh ---
         try:
-            db.add(db_lecture) # Add the lecture (and implicitly the associated problems) to the session
-            db.commit() # Commit the transaction to save to the database
-            db.refresh(db_lecture) # Refresh the lecture object to load its ID and relationships
+            db.commit()  # Commit the transaction to save to the database
+            db.refresh(db_problemset)  # Refresh the problemset object to load its ID and relationships
 
-            logger.info(f"Service: Successfully created lecture (ID: {db_lecture.id}) and problems in DB.")
-            return db_lecture # Return the SQLAlchemy Lecture ORM object
+            logger.info(f"Service: Successfully created problemset (ID: {db_problemset.id}) and problems in DB.")
+            return db_problemset
 
         except Exception as e:
-            db.rollback() # Roll back the transaction in case of errors
-            logger.error(f"Service: Failed to create lecture and problems in DB: {e}", exc_info=True)
+            db.rollback()  # Roll back the transaction in case of errors
+            logger.error(f"Service: Failed to create problemset and problems in DB: {e}", exc_info=True)
             # Raise a service-level error
             raise ProblemsetServiceError(f"Failed to save extracted data to database: {e}")
 
-    # Add other database interaction methods here if needed (e.g., get_lecture_by_id)
+    # Add other database interaction methods here if needed

@@ -1,28 +1,23 @@
-from sqlalchemy import Column, Integer, String, DateTime, func, Table, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Enum
 from sqlalchemy.orm import relationship
-from ..database import Base 
+from ..database import Base
+import enum
 
-problemset_problem_association = Table(
-    'problemset_problem_association', Base.metadata,
-    Column('problemset_id', Integer, ForeignKey('problemsets.id'), primary_key=True),
-    Column('problem_id', Integer, ForeignKey('problems.id'), primary_key=True)
-)
+class ProgramTypeEnum(enum.Enum):
+    SKOLA_MATEMATIKE = "skola matematike"
+    LJETNI_KAMP = "ljetni kamp"
+    ZIMSKI_KAMP = "zimski kamp"
 
 class Problemset(Base):
     __tablename__ = "problemsets"
-
+    
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), index=True, nullable=False)
-    group_name = Column(String(100), index=True, nullable=False) # Target student group
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    type = Column(String(100), index=True, nullable=False, server_default="predavanje")
-
-    # Define relationship to Problem model via the association table
-    problems = relationship(
-        "Problem",
-        secondary=problemset_problem_association,
-        back_populates="problemsets"
-    )
+    title = Column(String, nullable=False)
+    type = Column(String, nullable=False)
+    part_of = Column(String, nullable=False)
+    
+    # Relationships
+    problems = relationship("ProblemsetProblems", back_populates="problemset")
 
     def __repr__(self):
-         return f"<Problemset(id={self.id}, name='{self.name}', group='{self.group_name}, type='{self.type}')>"
+         return f"<Problemset(id={self.id}, title='{self.title}', type='{self.type}', part_of='{self.part_of}')>"
