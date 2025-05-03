@@ -24,3 +24,6 @@ CREATE TABLE problemset_problems (
     id_problemset INTEGER NOT NULL REFERENCES problemsets(id) ON DELETE CASCADE,
     PRIMARY KEY (id_problem, id_problemset)
 );
+
+
+ALTER TABLE problemset_problems ADD COLUMN position INTEGER;
