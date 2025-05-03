@@ -27,3 +27,4 @@ CREATE TABLE problemset_problems (
 
 
 ALTER TABLE problemset_problems ADD COLUMN position INTEGER;
+ALTER TABLE problemsets ADD COLUMN group_name VARCHAR(30);

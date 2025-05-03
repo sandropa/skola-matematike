@@ -21,9 +21,7 @@ class ProblemsetSchema(BaseModel):
     type: str       # Use the fields from your current ORM model
     part_of: str    # Use the fields from your current ORM model
     # REMOVE or ADD fields here to EXACTLY match the Problemset ORM model attributes
-    # name: str         # REMOVE if not in ORM model
-    # group_name: str   # REMOVE if not in ORM model
-    # created_at: datetime # REMOVE if not in ORM model
+    group_name: str   # REMOVE if not in ORM model
 
     # Relationship using the Association Object Schema
     problems: List[ProblemsetProblemsSchema] = [] # List of LINK objects

@@ -16,7 +16,7 @@ class Problemset(Base):
     type = Column(String, nullable=False)
     part_of = Column(String, nullable=False)
 
-    # todo: add group name!!!
+    group_name = Column(String)
     
     # Relationships
     problems = relationship("ProblemsetProblems", back_populates="problemset")

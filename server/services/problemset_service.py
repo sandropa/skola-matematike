@@ -62,7 +62,7 @@ class ProblemsetService:
             # --- 1. Create the Problemset ORM object IN MEMORY ---
             db_problemset = Problemset(
                 title=ai_data.lecture_name,
-                # group_name=ai_data.group_name, # Keep if needed
+                group_name=ai_data.group_name,
                 type="predavanje",
                 part_of="skola matematike" # Add other fields as needed
             )
