@@ -50,26 +50,165 @@ class GeminiService:
 
 
     # --- Return type hint is now the Pydantic AI output model ---
+    # async def process_lecture_pdf(self, pdf_bytes: bytes) -> LectureProblemsOutput:
+    #     """
+    #     Processes a PDF lecture file using Gemini and extracts structured data.
+
+    #     Args:
+    #         pdf_bytes: The binary content of the PDF file.
+
+    #     Returns:
+    #         A LectureProblemsOutput Pydantic model instance containing
+    #         the extracted lecture name, group, and problems in LaTeX format.
+
+    #     Raises:
+    #         GeminiServiceError: If the API call fails or returns an empty response.
+    #         GeminiJSONError: If AI returns invalid JSON.
+    #         GeminiResponseValidationError: If AI returns valid JSON but it doesn't
+    #                                      match the LectureProblemsOutput schema.
+    #     """
+    #     logger.info("Service method: processing lecture PDF.")
+
+    #     # --- Prepare Contents using Inline Data ---
+    #     contents = [
+    #         types.Content(
+    #             role="user",
+    #             parts=[
+    #                 types.Part(inline_data=types.Blob(
+    #                     mime_type="application/pdf",
+    #                     data=pdf_bytes
+    #                 )),
+    #                 # --- Updated Text Prompt ---
+    #                 types.Part.from_text(text="""Extract the following from this PDF document:
+    #                                             1. The lecture name (title/topic).
+    #                                             2. The target group, mapping it to one of: 'napredna', 'olimpijska', 'pocetna', 'predolimpijska', 'srednja'.
+    #                                             3. A list of all distinct math problems. For EACH problem in the list, provide:
+    #                                                 a. Its full LaTeX source code.
+    #                                                 b. Its most likely category, assigning exactly one letter: 'A' for Algebra, 'N' for Number Theory, 'G' for Geometry, or 'C' for Combinatorics.
+    #                                             Return the output as a single JSON object conforming to the specified schema."""),
+    #                 # --- End Updated Text Prompt ---
+    #             ],
+    #         ),
+    #     ]
+    #     logger.debug("Service: Constructed contents for PDF processing including category extraction.")
+
+    #     # --- Define generation config with updated response_schema ---
+    #     generate_content_config = types.GenerateContentConfig(
+    #         response_mime_type="application/json",
+    #         # --- Updated response_schema ---
+    #         response_schema=genai.types.Schema(
+    #             type = genai.types.Type.OBJECT,
+    #             # Required top-level fields remain the same name, but structure of one changes
+    #             required = ["lecture_name", "group_name", "problems_latex"],
+    #             properties = {
+    #                 "lecture_name": genai.types.Schema(
+    #                     type = genai.types.Type.STRING,
+    #                     description = "The main title or name/topic of the lecture found in the document."
+    #                 ),
+    #                 "group_name": genai.types.Schema(
+    #                     type = genai.types.Type.STRING,
+    #                     description = "The target group for the lecture, mapped precisely to one of the five allowed values.",
+    #                     # Keep enum for group name consistency
+    #                     enum = ["napredna", "olimpijska", "pocetna", "predolimpijska", "srednja"]
+    #                 ),
+    #                 # --- Modify problems_latex property ---
+    #                 "problems_latex": genai.types.Schema(
+    #                     type = genai.types.Type.ARRAY,
+    #                     description = "A list of objects, each containing the LaTeX source and category for a distinct problem.",
+    #                     # Define the structure of objects WITHIN the array
+    #                     items = genai.types.Schema(
+    #                         type = genai.types.Type.OBJECT,
+    #                         # Define properties of the objects in the array
+    #                         properties = {
+    #                             'latex_text': genai.types.Schema(
+    #                                 type=genai.types.Type.STRING,
+    #                                 description="The full LaTeX representation of a single math problem."
+    #                             ),
+    #                             'category': genai.types.Schema(
+    #                                 type=genai.types.Type.STRING,
+    #                                 description="The category of the problem (A, N, G, or C).",
+    #                                 # Add enum constraint for the category within the items
+    #                                 enum = ['A', 'N', 'G', 'C']
+    #                             )
+    #                         },
+    #                         # Define required fields for each object in the array
+    #                         required = ['latex_text', 'category']
+    #                     ) # End of items schema
+    #                 ), # End of problems_latex property
+    #                 # --- End modification ---
+    #             }, # End of top-level properties
+    #         ), # End of top-level schema
+    #         # --- System instruction can remain similar ---
+    #         # You might want to tweak it slightly to emphasize category extraction accuracy
+    #         system_instruction=[
+    #             types.Part.from_text(text="""You are a highly accurate extraction engine specializing in mathematical lecture documents (PDFs) from math camps. Your task is to parse the provided PDF and extract the lecture title, target group (mapped to 'napredna', 'olimpijska', 'pocetna', 'predolimpijska', or 'srednja'), and a list of problems. For each problem, provide its LaTeX source and its category ('A', 'N', 'G', or 'C'). Adhere strictly to the provided JSON output schema."""),
+    #         ],
+    #     )
+    #     logger.debug("Service: Defined generation config with updated response schema for problem categories.")
+
+    #     # --- Call generate_content_stream and collect response ---
+    #     full_json_string = ""
+    #     try:
+    #         logger.info(f"Service: Calling Gemini model '{GEMINI_FLASH_2_5}' (streaming)...")
+
+    #         def _get_streamed_response_text():
+    #             text = ""
+    #             stream = self.client.models.generate_content_stream(
+    #                 model=GEMINI_FLASH_2_5,
+    #                 contents=contents,
+    #                 config=generate_content_config,
+    #             )
+    #             for chunk in stream:
+    #                 if hasattr(chunk, 'text') and chunk.text:
+    #                      text += chunk.text
+    #             return text
+
+    #         full_json_string = await run_in_threadpool(_get_streamed_response_text)
+
+    #         logger.info("Service: Finished receiving streamed response.")
+    #         logger.debug(f"Service: Full raw string received (first 500 chars): {full_json_string[:500]}...")
+
+    #     except Exception as e:
+    #          logger.error(f"Service: Error during Gemini generation streaming: {e}", exc_info=True)
+    #          raise GeminiServiceError(f"AI content generation failed: {e}")
+
+
+    #     # --- Parse and Validate the collected JSON string ---
+    #     if not full_json_string:
+    #         logger.warning("Service: Received empty response string from Gemini.")
+    #         raise GeminiServiceError("AI service returned an empty response.")
+
+    #     try:
+    #         # Parse the string as JSON
+    #         parsed_data: Dict[str, Any] = json.loads(full_json_string)
+    #         logger.info("Service: Successfully parsed Gemini response as JSON.")
+
+    #         # --- Validate parsed data against the Pydantic AI output model ---
+    #         logger.debug("Service: Validating parsed data against LectureProblemsOutput schema...")
+    #         validated_data = LectureProblemsOutput(**parsed_data)
+    #         logger.info("Service: Parsed data successfully validated.")
+    #         # --- Return the validated Pydantic model instance ---
+    #         return validated_data
+
+    #     except json.JSONDecodeError as e:
+    #         logger.error(f"Service: Failed to decode JSON response: {e}. Raw string: {full_json_string}", exc_info=True)
+    #         raise GeminiJSONError(f"AI service returned invalid JSON: {e}")
+    #     except Exception as e: # Catch Pydantic ValidationError or other parsing issues
+    #         logger.error(f"Service: An error occurred during JSON parsing or Pydantic validation: {e}", exc_info=True)
+    #         raise GeminiResponseValidationError(f"AI response did not match expected data structure: {e}")
+
+
     async def process_lecture_pdf(self, pdf_bytes: bytes) -> LectureProblemsOutput:
         """
-        Processes a PDF lecture file using Gemini and extracts structured data.
-
-        Args:
-            pdf_bytes: The binary content of the PDF file.
+        Processes a PDF lecture file using Gemini and extracts structured data,
+        including problem categories.
 
         Returns:
-            A LectureProblemsOutput Pydantic model instance containing
-            the extracted lecture name, group, and problems in LaTeX format.
-
-        Raises:
-            GeminiServiceError: If the API call fails or returns an empty response.
-            GeminiJSONError: If AI returns invalid JSON.
-            GeminiResponseValidationError: If AI returns valid JSON but it doesn't
-                                         match the LectureProblemsOutput schema.
+            A LectureProblemsOutput Pydantic model instance.
         """
-        logger.info("Service method: processing lecture PDF.")
+        logger.info("Service method: processing lecture PDF for text and category.")
 
-        # --- Prepare Contents using Inline Data ---
+        # --- Prepare Contents using Inline Data (with updated prompt) ---
         contents = [
             types.Content(
                 role="user",
@@ -78,79 +217,77 @@ class GeminiService:
                         mime_type="application/pdf",
                         data=pdf_bytes
                     )),
-                    types.Part.from_text(text="""Extract the lecture name, target group, and all distinct math problems in LaTeX format from this PDF document. Return the output as a JSON object conforming to the specified schema."""),
+                    types.Part.from_text(text="""Extract the following from this PDF document:
+1. The lecture name (title/topic).
+2. The target group, mapping it to one of: 'napredna', 'olimpijska', 'pocetna', 'predolimpijska', 'srednja'.
+3. A list of all distinct math problems. For EACH problem in the list, provide:
+    a. Its full LaTeX source code.
+    b. Its most likely category, assigning exactly one letter: 'A' for Algebra, 'N' for Number Theory, 'G' for Geometry, or 'C' for Combinatorics.
+Return the output as a single JSON object conforming to the specified schema."""),
                 ],
             ),
         ]
-        logger.debug("Service: Constructed contents for PDF processing.")
+        logger.debug("Service: Constructed contents for PDF processing including category.")
 
-        # --- Define generation config (copied from your working sample) ---
-        # The response_schema here tells the AI the desired structure.
-        # It should match the LectureProblemsOutput Pydantic model structure.
+        # --- Define generation config with updated response_schema ---
         generate_content_config = types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=genai.types.Schema(
                 type = genai.types.Type.OBJECT,
                 required = ["lecture_name", "group_name", "problems_latex"],
                 properties = {
-                    "lecture_name": genai.types.Schema(type = genai.types.Type.STRING, description = "The main title or name of the lecture topic found in the document."),
-                    "group_name": genai.types.Schema(type = genai.types.Type.STRING, description = "The target group for the lecture (e.g., 'Početna grupa', 'Srednja grupa', 'Napredna grupa', 'Predolimpijska grupa', 'Olimpijska grupa').",),
-                    "problems_latex": genai.types.Schema(type = genai.types.Type.ARRAY, description = "A list containing the extracted LaTeX source string for each distinct problem identified in the document.", items = genai.types.Schema(type = types.Type.STRING),),
+                    "lecture_name": genai.types.Schema(type = genai.types.Type.STRING, description = "The main title or name/topic of the lecture found in the document."),
+                    "group_name": genai.types.Schema(type = genai.types.Type.STRING, description = "The target group for the lecture, mapped precisely to one of the five allowed values.", enum = ["napredna", "olimpijska", "pocetna", "predolimpijska", "srednja"]),
+                    "problems_latex": genai.types.Schema(
+                        type = genai.types.Type.ARRAY,
+                        description = "A list of objects, each containing the LaTeX source and category for a distinct problem.",
+                        items = genai.types.Schema(
+                            type = genai.types.Type.OBJECT,
+                            properties = {
+                                'latex_text': genai.types.Schema(type=genai.types.Type.STRING, description="The full LaTeX representation of a single math problem."),
+                                'category': genai.types.Schema(type=genai.types.Type.STRING, description="The category of the problem (A, N, G, or C).", enum = ['A', 'N', 'G', 'C'])
+                            },
+                            required = ['latex_text', 'category']
+                        )
+                    ),
                 },
             ),
-            system_instruction=[types.Part.from_text(text="""You are an extraction engine for math lectures. You translate PDFs into JSON of the lecture, and problems in the lecture in Latex."""),],
+            system_instruction=[types.Part.from_text(text="""You are a highly accurate extraction engine specializing in mathematical lecture documents (PDFs) from math camps. Your task is to parse the provided PDF and extract the lecture title, target group (mapped to 'napredna', 'olimpijska', 'pocetna', 'predolimpijska', or 'srednja'), and a list of problems. For each problem, provide its LaTeX source and its category ('A', 'N', 'G', or 'C'). Adhere strictly to the provided JSON output schema."""),],
         )
-        logger.debug("Service: Defined generation config for PDF processing.")
-
+        logger.debug("Service: Defined generation config with updated response schema for problem categories.")
 
         # --- Call generate_content_stream and collect response ---
         full_json_string = ""
         try:
             logger.info(f"Service: Calling Gemini model '{GEMINI_FLASH_2_5}' (streaming)...")
-
             def _get_streamed_response_text():
                 text = ""
-                stream = self.client.models.generate_content_stream(
-                    model=GEMINI_FLASH_2_5,
-                    contents=contents,
-                    config=generate_content_config,
-                )
+                stream = self.client.models.generate_content_stream(model=GEMINI_FLASH_2_5, contents=contents, config=generate_content_config,)
                 for chunk in stream:
-                    if hasattr(chunk, 'text') and chunk.text:
-                         text += chunk.text
+                    if hasattr(chunk, 'text') and chunk.text: text += chunk.text
                 return text
-
             full_json_string = await run_in_threadpool(_get_streamed_response_text)
-
             logger.info("Service: Finished receiving streamed response.")
             logger.debug(f"Service: Full raw string received (first 500 chars): {full_json_string[:500]}...")
-
         except Exception as e:
              logger.error(f"Service: Error during Gemini generation streaming: {e}", exc_info=True)
              raise GeminiServiceError(f"AI content generation failed: {e}")
-
 
         # --- Parse and Validate the collected JSON string ---
         if not full_json_string:
             logger.warning("Service: Received empty response string from Gemini.")
             raise GeminiServiceError("AI service returned an empty response.")
-
         try:
-            # Parse the string as JSON
             parsed_data: Dict[str, Any] = json.loads(full_json_string)
             logger.info("Service: Successfully parsed Gemini response as JSON.")
-
-            # --- Validate parsed data against the Pydantic AI output model ---
             logger.debug("Service: Validating parsed data against LectureProblemsOutput schema...")
-            validated_data = LectureProblemsOutput(**parsed_data)
+            validated_data = LectureProblemsOutput(**parsed_data) # Validation happens here
             logger.info("Service: Parsed data successfully validated.")
-            # --- Return the validated Pydantic model instance ---
-            return validated_data
-
+            return validated_data # Return validated Pydantic object
         except json.JSONDecodeError as e:
             logger.error(f"Service: Failed to decode JSON response: {e}. Raw string: {full_json_string}", exc_info=True)
             raise GeminiJSONError(f"AI service returned invalid JSON: {e}")
-        except Exception as e: # Catch Pydantic ValidationError or other parsing issues
+        except Exception as e: # Catch Pydantic ValidationError etc.
             logger.error(f"Service: An error occurred during JSON parsing or Pydantic validation: {e}", exc_info=True)
             raise GeminiResponseValidationError(f"AI response did not match expected data structure: {e}")
 

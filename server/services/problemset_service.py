@@ -71,14 +71,14 @@ class ProblemsetService:
 
             # --- 2. Create all Problem ORM objects IN MEMORY ---
             problem_orms = []
-            for latex_content in ai_data.problems_latex:
+            for problem_data in ai_data.problems_latex:
                 db_problem = Problem(
-                    latex_text=latex_content,
-                    category="N" # Default category
+                    latex_text=problem_data.latex_text,
+                    category=problem_data.category # Default category
                     # Add other fields as needed
                 )
                 problem_orms.append(db_problem)
-                logger.debug(f"Service: Prepared ORM object for problem: '{latex_content[:30]}...'")
+                logger.debug(f"Service: Prepared ORM object for problem: '{problem_data.latex_text[:30]}...'")
 
             # Add all problems to the session so they get IDs on flush
             db.add_all(problem_orms)

@@ -6,11 +6,15 @@ from datetime import datetime # Keep if ORM model still has datetime fields
 # Import the schema for the link object
 from .problemset_problems import ProblemsetProblemsSchema
 
+class ProblemOutput(BaseModel):
+    latex_text: str
+    category: str
+
 # Keep the AI Output schema if still needed elsewhere
 class LectureProblemsOutput(BaseModel):
     lecture_name: str
     group_name: str
-    problems_latex: List[str]
+    problems_latex: List[ProblemOutput]
 
 
 class ProblemsetSchema(BaseModel):
