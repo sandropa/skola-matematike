@@ -71,4 +71,9 @@ logs/
 
 venv/
 
+*.npy
+
+experiments/data/*
+
+
 experiments/data/*
