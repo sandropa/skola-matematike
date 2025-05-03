@@ -7,6 +7,8 @@ class ProblemsetProblems(Base):
     
     id_problem = Column(Integer, ForeignKey("problems.id"), primary_key=True)
     id_problemset = Column(Integer, ForeignKey("problemsets.id"), primary_key=True)
+
+    position = Column(Integer)
     
     # Relationships
     problem = relationship("Problem", back_populates="problemsets")
