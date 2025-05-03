@@ -18,7 +18,6 @@ class Problem(Base):
     latex_versions = Column(ARRAY(Text), nullable=True)  # Array of text for multiple versions
     solution = Column(Text, nullable=True)
     category = Column(String, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Define relationship placeholder (will link via Lecture model)
     problemsets = relationship(
