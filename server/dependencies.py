@@ -15,7 +15,7 @@ except ImportError as e:
 # Import service classes
 try:
     from .services.gemini_service import GeminiService
-    from .services.lecture_service import LectureService # Import the new service
+    from .services.problemset_service import ProblemsetService # Import the new service
 except ImportError as e:
     logging.error(f"Failed to import service classes: {e}")
     raise # Critical error
@@ -92,7 +92,7 @@ def get_gemini_service(
 
 
 # Dependency provider for the LectureService
-def get_lecture_service() -> LectureService:
+def get_lecture_service() -> ProblemsetService:
     """
     FastAPI dependency function to get a cached LectureService instance.
     DB session is passed per-method to allow service methods to be simpler.
@@ -101,7 +101,7 @@ def get_lecture_service() -> LectureService:
 
     if _cached_lecture_service is None:
         logger.info("Instantiating new LectureService (first request).")
-        _cached_lecture_service = LectureService() # Instantiate the service
+        _cached_lecture_service = ProblemsetService() # Instantiate the service
     else:
         logger.debug("Using cached LectureService.")
 

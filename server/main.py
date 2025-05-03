@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 import mimetypes # Import mimetypes for guessing content type if needed (though UploadFile provides it)
 
 from .routers import problems
-from .routers import lectures
+from .routers import problemsets
 
 # Import the settings from your config file (assuming config.py loads .env)
 from .config import settings
@@ -35,7 +35,7 @@ app = FastAPI(
 )
 
 app.include_router(problems.router)
-app.include_router(lectures.router)
+app.include_router(problemsets.router)
 
 # --- Pydantic Models ---
 class LatexInput(BaseModel):
