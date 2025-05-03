@@ -1,28 +1,34 @@
-from pydantic import BaseModel, Field
+# server/schemas/problemset.py
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime # Keep if ORM model still has datetime fields
 
-from .problem import ProblemSchema
+# Import the schema for the link object
+from .problemset_problems import ProblemsetProblemsSchema
 
-
-# --- Pydantic Model matching AI Output JSON Structure ---
-# This represents the data *received directly from the AI*
+# Keep the AI Output schema if still needed elsewhere
 class LectureProblemsOutput(BaseModel):
-    """Pydantic model for the raw JSON output structure from the AI."""
-    title: str = Field(..., description="The title of the problemset.")
-    type: str = Field(..., description="The type of the problemset.")
-    part_of: str = Field(..., description="What program this is part of (e.g., 'skola matematike', 'ljetni kamp', 'zimski kamp').")
-    problems_latex: List[str] = Field(..., description="A list containing the extracted LaTeX source string for each distinct problem identified in the document.")
+    lecture_name: str
+    group_name: str
+    problems_latex: List[str]
 
 
 class ProblemsetSchema(BaseModel):
     """Pydantic schema for representing a Problemset object in API responses."""
-    id: int 
-    title: str
-    type: str
-    part_of: str
+    id: int
+    # --- Adjust fields to match the Problemset ORM model ---
+    title: str      # Use the fields from your current ORM model
+    type: str       # Use the fields from your current ORM model
+    part_of: str    # Use the fields from your current ORM model
+    # REMOVE or ADD fields here to EXACTLY match the Problemset ORM model attributes
+    # name: str         # REMOVE if not in ORM model
+    # group_name: str   # REMOVE if not in ORM model
+    # created_at: datetime # REMOVE if not in ORM model
 
-    problems: List[ProblemSchema] = []
+    # Relationship using the Association Object Schema
+    problems: List[ProblemsetProblemsSchema] = [] # List of LINK objects
 
+    # Config for ORM mode
     class Config:
         orm_mode = True
+    # model_config = ConfigDict(from_attributes=True) # Pydantic v2
