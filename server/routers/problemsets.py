@@ -1,7 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile
-from sqlalchemy.orm import Session # Import Session type for the database dependency
+from sqlalchemy.orm import Session, joinedload # Import Session type for the database dependency
 
 from typing import List
 
@@ -28,6 +28,7 @@ try:
     from ..schemas.problemset import LectureProblemsOutput
     # We need LectureSchema schema to define the API response structure
     from ..schemas.problemset import ProblemsetSchema # Import the Pydantic schema for Lecture
+    from ..schemas.problemset_problems import ProblemsetProblemsSchema
 except ImportError as e:
     logging.error(f"Failed to import Pydantic schemas: {e}")
     raise
@@ -36,6 +37,8 @@ except ImportError as e:
 # Import the SQLAlchemy ORM model for Lecture
 try:
     from ..models.problemset import Problemset # Import the SQLAlchemy Lecture model
+    from ..models.problem import Problem
+    from ..models.problemset_problems import ProblemsetProblems
 except ImportError as e:
     logging.error(f"Failed to import SQLAlchemy Lecture model: {e}")
     raise
@@ -55,6 +58,65 @@ def all_problemsets(db: Session = Depends(get_db)):
     problemsets_orm = db.query(Problemset).all()
     logger.info(f"Fetched {len(problemsets_orm)} problemsets.")
     return problemsets_orm
+
+@router.get(
+    "/{problemset_id}/lecture-data",
+    response_model=ProblemsetSchema,
+    summary="Get Data for a Specific Lecture (Predavanje)",
+    tags=["Lectures"], # Keep specific tag if desired
+    responses={
+        404: {"description": "Lecture (Problemset) not found or not of type 'predavanje'"},
+    }
+)
+def get_lecture_data_by_id( # Function definition starts here
+    problemset_id: int,
+    db: Session = Depends(get_db)
+) -> ProblemsetSchema: # Return type hint matches response_model
+    """
+    Retrieves the data for a specific problemset identified by its ID,
+    ensuring it is of type 'predavanje'. Includes associated problems
+    ordered by position.
+    """
+    logger.info(f"Fetching lecture data for problemset ID: {problemset_id}")
+
+    # Query using the imported Problemset model
+    problemset_orm = db.query(Problemset)\
+        .options(
+            joinedload(Problemset.problems) # Use the relationship attribute name from Problemset model
+            .joinedload(ProblemsetProblems.problem) # Use the relationship attribute name from ProblemsetProblems model
+        )\
+        .filter(Problemset.id == problemset_id)\
+        .filter(Problemset.type == 'predavanje')\
+        .first()
+
+    if not problemset_orm:
+        logger.warning(f"Lecture (Problemset) with ID {problemset_id} and type 'predavanje' not found.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Lecture with ID {problemset_id} not found."
+        )
+
+    # Sort the loaded link objects by position
+    try:
+        # Access the relationship via the correct attribute name 'problems'
+        if problemset_orm.problems: # Check if the list is not empty/None
+             problemset_orm.problems.sort(key=lambda link: link.position if link.position is not None else float('inf'))
+             logger.debug(f"Sorted problems for problemset ID {problemset_id} by position.")
+        else:
+             logger.debug(f"No problems found for problemset ID {problemset_id} to sort.")
+    except AttributeError as e:
+         logger.error(f"AttributeError during sorting for problemset ID {problemset_id}. Check relationship/attribute names: {e}", exc_info=True)
+         # Decide how to handle - potentially raise 500 or return unsorted
+         raise HTTPException(status_code=500, detail="Internal error processing problem order")
+    except Exception as e:
+        logger.error(f"Error sorting problems by position for problemset ID {problemset_id}: {e}", exc_info=True)
+        pass # Continue returning potentially unsorted data if non-critical
+
+    logger.info(f"Successfully fetched lecture data for problemset ID: {problemset_id}, Title: {problemset_orm.title}")
+    # Return the ORM object; FastAPI serializes using ProblemsetSchema
+    return problemset_orm
+
+
 
 # --- The Process PDF Route (Saves to DB) ---
 @router.post(
