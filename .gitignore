@@ -99,3 +99,5 @@ frontend/Thumbs.db
 
 # Optional Vite-specific cache/temp files
 frontend/.vite/
+
+llm_prompt_context.py
