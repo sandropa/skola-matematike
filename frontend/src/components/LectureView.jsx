@@ -76,7 +76,7 @@ function LectureView() {
         rel="noopener noreferrer"
         className="download-button" // Apply button style
       >
-        Download PDF (Not implemented yet)
+        Download PDF
       </a>
 
       <hr style={{ marginBottom: '25px' }} />
