@@ -6,6 +6,7 @@ from google.genai import types
 # --- End of sample-specific imports ---
 
 from fastapi import FastAPI, HTTPException, status, File, UploadFile # Added File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 import mimetypes # Import mimetypes for guessing content type if needed (though UploadFile provides it)
@@ -33,6 +34,24 @@ app = FastAPI(
     description="API using the specific Gemini Client structure provided.",
     version="0.3.0" # Incremented version
 )
+
+# --- CORS Configuration ---
+# List of origins allowed to make requests (use '*' for testing, be specific in production)
+origins = [
+    "http://localhost:5173", # Default Vite dev server port
+    "http://127.0.0.1:5173",
+    "http://localhost",
+    # Add other origins if needed
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins, # Allows specific origins
+    allow_credentials=True, # Allows cookies (if needed)
+    allow_methods=["*"],    # Allows all methods (GET, POST, etc.)
+    allow_headers=["*"],    # Allows all headers
+)
+# --- End CORS Configuration ---
 
 app.include_router(problems.router)
 app.include_router(problemsets.router)

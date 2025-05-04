@@ -76,3 +76,26 @@ experiments/data/
 *.npy
 
 experiments/data/
+
+# --- Node / React Frontend ---
+# Dependency directories
+frontend/node_modules/
+
+# Build output
+frontend/dist/
+frontend/build/ # Common for create-react-app, Vite uses 'dist'
+
+# Logs
+frontend/npm-debug.log*
+frontend/yarn-error.log*
+frontend/logs/
+*.log
+
+# Optional Editor/OS files (might already be covered by global gitignore)
+frontend/.idea/
+frontend/.vscode/
+frontend/.DS_Store
+frontend/Thumbs.db
+
+# Optional Vite-specific cache/temp files
+frontend/.vite/
