@@ -1,38 +1,95 @@
+import logging
 from sqlalchemy.orm import Session
 from ..models.problem import Problem as DBProblem 
-from ..schemas.problem import ProblemSchema  
+from ..schemas.problem import ProblemSchema, ProblemCreate, ProblemUpdate
+
+from sqlalchemy.exc import SQLAlchemyError
+
+logger = logging.getLogger(__name__)
 
 def get_all(db: Session):
+    '''Retrieve all problems from the database'''
+    logger.info("Service: Fetching all problems.")
     return db.query(DBProblem).all()
 
-# todo (old code before refactoring):
-# def get_one(db: Session, problem_id: int):
-#     return db.query(DBProblem).filter(DBProblem.id == problem_id).first()
 
-# def create(db: Session, problem: ProblemSchema):
-#     db_problem = DBProblem(**problem.dict())
-#     db.add(db_problem)
-#     db.commit()
-#     db.refresh(db_problem)
-#     return db_problem
+def get_one(db: Session, problem_id: int):
+    '''Retrieve a single problem by its ID.'''
+    logger.info(f"Service: Fetching problem with id {problem_id}.")
+    return db.query(DBProblem).filter(DBProblem.id == problem_id).first()
 
-# def update(db: Session, problem_id: int, new_problem: ProblemSchema):
-#     db_problem = db.query(DBProblem).filter(DBProblem.id == problem_id).first()
-#     if not db_problem:
-#         return None
+
+def create(db: Session, problem: ProblemCreate) -> DBProblem:
+    """Create a new problem in the database."""
+    logger.info(f"Service: Creating new problem.")
+    # Create SQLAlchemy model instance from ProblemCreate schema
+    problem_data = problem.dict(exclude_unset=True) # No need to check for 'id' here
+    db_problem = DBProblem(**problem_data)
+    try:
+        db.add(db_problem)
+        db.commit()
+        db.refresh(db_problem)
+        logger.info(f"Service: Successfully created problem with id {db_problem.id}.")
+        return db_problem
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Service: Database error occurred during problem creation: {e}", exc_info=True)
+        raise SQLAlchemyError(f"Database error creating problem: {e}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Service: Unexpected error during problem creation: {e}", exc_info=True)
+        raise
+
+
+def update(db: Session, problem_id: int, problem_update: ProblemUpdate) -> DBProblem | None:
+    """Update an existing problem in the database."""
+    logger.info(f"Service: Attempting to update problem with id {problem_id}.")
+    db_problem = get_one(db, problem_id)
+    if not db_problem:
+        logger.warning(f"Service: Problem with id {problem_id} not found for update.")
+        return None
+
+    # Use ProblemUpdate schema for update data
+    update_data = problem_update.dict(exclude_unset=True)
+
+    try:
+        for key, value in update_data.items():
+            # Still prevent updating 'id', though it's not in ProblemUpdate anyway
+            if key != "id":
+                setattr(db_problem, key, value)
+        logger.debug(f"Service: Updating fields for problem {problem_id}: {update_data.keys()}")
+        db.commit()
+        db.refresh(db_problem)
+        logger.info(f"Service: Successfully updated problem with id {problem_id}.")
+        return db_problem
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Service: Database error occurred during problem update (id: {problem_id}): {e}", exc_info=True)
+        raise SQLAlchemyError(f"Database error updating problem: {e}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Service: Unexpected error during problem update (id: {problem_id}): {e}", exc_info=True)
+        raise
+
+
+def delete(db: Session, problem_id: int) -> bool:
+    '''Delete a problem from the database.'''
+    logger.info(f"Service: Attempting to delete problem with id {problem_id}.")
+    db_problem = get_one(db, problem_id)
+    if not db_problem:
+        logger.warning(f"Service: Problem with id {problem_id} not found for deletion.")
+        return False
     
-#     for key, value in new_problem.dict().items():
-#         setattr(db_problem, key, value)
-
-#     db.commit()
-#     db.refresh(db_problem)
-#     return db_problem
-
-# def delete(db: Session, problem_id: int):
-#     db_problem = db.query(DBProblem).filter(DBProblem.id == problem_id).first()
-#     if not db_problem:
-#         return False
-    
-#     db.delete(db_problem)
-#     db.commit()
-#     return True
+    try:
+        db.delete(db_problem)
+        db.commit()
+        logger.info(f"Service: Successfully deleted problem with id {problem_id}.")
+        return True
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Service: Database error occurerred during problem deletion (id: {problem_id}): {e}", exc_info=True)
+        raise SQLAlchemyError(f"Database error deleting problem: {e}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Service: Unexpected error during problem deletion (id: {problem_id}): {e}", exc_info=True)
+        raise
