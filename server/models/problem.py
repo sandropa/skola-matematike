@@ -1,7 +1,7 @@
 # server/models/problem.py
 
 # --- Make sure ARRAY and Text are imported from sqlalchemy ---
-from sqlalchemy import Column, Integer, String, Text, ARRAY
+from sqlalchemy import Column, Integer, String, Text, JSON
 # --- (Keep other imports like relationship, Base, enum) ---
 from sqlalchemy.orm import relationship
 from ..database import Base
@@ -20,7 +20,7 @@ class Problem(Base):
     latex_text = Column(Text, nullable=False)
     comments = Column(Text, nullable=True)
     # --- Ensure this definition is exactly ARRAY(Text) ---
-    latex_versions = Column(ARRAY(Text), nullable=True)
+    latex_versions = Column(JSON, nullable=True)
     # -------------------------------------------------------
     solution = Column(Text, nullable=True)
     category = Column(String, nullable=False) # Keep as String, potentially add Enum here later if needed
