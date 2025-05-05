@@ -15,6 +15,7 @@ class ProblemsetProblemsSchema(BaseModel):
     problem: ProblemSchema
 
     # Config for ORM mode
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(
+        from_attributes=True
+    )
     # model_config = ConfigDict(from_attributes=True) # Pydantic v2

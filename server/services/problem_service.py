@@ -23,7 +23,7 @@ def create(db: Session, problem: ProblemCreate) -> DBProblem:
     """Create a new problem in the database."""
     logger.info(f"Service: Creating new problem.")
     # Create SQLAlchemy model instance from ProblemCreate schema
-    problem_data = problem.dict(exclude_unset=True) # No need to check for 'id' here
+    problem_data = problem.model_dump(exclude_unset=True) # No need to check for 'id' here
     db_problem = DBProblem(**problem_data)
     try:
         db.add(db_problem)
@@ -50,7 +50,7 @@ def update(db: Session, problem_id: int, problem_update: ProblemUpdate) -> DBPro
         return None
 
     # Use ProblemUpdate schema for update data
-    update_data = problem_update.dict(exclude_unset=True)
+    update_data = problem_update.model_dump(exclude_unset=True)
 
     try:
         for key, value in update_data.items():

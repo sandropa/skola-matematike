@@ -30,7 +30,6 @@ class ProblemsetSchema(BaseModel):
     # Relationship using the Association Object Schema
     problems: List[ProblemsetProblemsSchema] = [] # List of LINK objects
 
-    # Config for ORM mode
-    class Config:
-        orm_mode = True
-    # model_config = ConfigDict(from_attributes=True) # Pydantic v2
+    model_config = ConfigDict(
+        from_attributes=True
+    )
