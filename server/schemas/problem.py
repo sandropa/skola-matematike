@@ -1,24 +1,37 @@
-from pydantic import BaseModel, ConfigDict # <-- Import ConfigDict for Pydantic v2 style
-from typing import Optional, List
+# server/schemas/problem.py
+from pydantic import BaseModel, ConfigDict, Field # <-- Added Field
+from typing import Optional, List, Literal # <-- Added Literal
+
+# Define the allowed categories
+CategoryLiteral = Literal['A', 'N', 'G', 'C']
 
 # Base schema with common fields (used for input and inheritance)
 class ProblemBase(BaseModel):
     latex_text: str
-    category: str
+    # Use Literal for category validation at the schema level
+    category: CategoryLiteral = Field(..., examples=['A', 'N', 'G', 'C'])
     comments: Optional[str] = None
-    latex_versions: Optional[List[str]] = None
+    # Use JSON compatible type hint if storing complex JSON, keep List[str] if simple list
+    latex_versions: Optional[List[str]] = None # Or Optional[Any] if complex JSON
     solution: Optional[str] = None
 
 # Schema for creating a new problem (used in POST request body)
 class ProblemCreate(ProblemBase):
     pass # Inherits all fields from ProblemBase
 
-# Schema for updating a problem (used in PUT request body)
-# Often the same as Create, but could allow optional fields if needed
+# Schema for updating a problem via PUT (requires all fields)
 class ProblemUpdate(ProblemBase):
-    # You could make fields optional here if you want partial updates
-    # e.g., latex_text: Optional[str] = None
     pass
+
+# --- NEW SCHEMA FOR PATCH ---
+# Schema for partially updating a problem (used in PATCH request body)
+# All fields are optional
+class ProblemPartialUpdate(BaseModel):
+    latex_text: Optional[str] = None
+    category: Optional[CategoryLiteral] = None
+    comments: Optional[str] = None
+    latex_versions: Optional[List[str]] = None # Or Optional[Any]
+    solution: Optional[str] = None
 
 # Schema for representing a Problem in API responses (used in GET responses)
 class ProblemSchema(ProblemBase):
@@ -28,8 +41,3 @@ class ProblemSchema(ProblemBase):
     model_config = ConfigDict(
         from_attributes = True # Replaces orm_mode=True
     )
-
-    # --- OR --- (If you are using Pydantic V1) ---
-    # class Config:
-    #     orm_mode = True
-    # --- Choose the one appropriate for your Pydantic version ---

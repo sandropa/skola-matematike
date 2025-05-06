@@ -8,7 +8,7 @@ from typing import List
 
 from ..database import get_db
 # Import the new schemas
-from ..schemas.problem import ProblemSchema, ProblemCreate, ProblemUpdate
+from ..schemas.problem import ProblemSchema, ProblemCreate, ProblemUpdate, ProblemPartialUpdate
 from ..services import problem_service
 
 logger = logging.getLogger(__name__)
@@ -78,6 +78,34 @@ def update_existing_problem(problem_id: int, problem_update: ProblemUpdate, db: 
     except Exception as e:
         logger.error(f"Router: Unexpected error during problem update (id: {problem_id}): {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
+
+@router.patch("/{problem_id}", response_model=ProblemSchema, summary="Partially Update Existing Problem")
+def patch_existing_problem(
+    problem_id: int, 
+    problem_update: ProblemPartialUpdate, 
+    db: Session = Depends(get_db)):
+    '''Partially update an existing problem identified by its ID.'''
+    logger.info(f"Router: Request received for PATCH /problems/{problem_id}")
+    if not problem_update.model_dump(exclude_unset=True):
+        logger.warning(f"Router: PATCH request for problem {problem_id} received with no update data.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No update data is provided in PATCH request.")
+
+    try:
+        updated_problem = problem_service.patch(db=db, problem_id=problem_id, problem_update=problem_update)
+        if updated_problem is None:
+            logger.warning(f"Router: Problem with id {problem_id} not found for PATCH update.")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found")
+        logger.info(f"Router: Problem {problem_id} updated seccessfully (PATCH).")
+        return updated_problem
+    except SQLAlchemyError as e:
+        logger.error(f"Router: Database error during problem update (PATCH) (id: {problem_id}): {e}", exc_info=True)
+        raise
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        logger.error(f"Router: Unexpected error during problem update (PATCH) (id: {problem_id}): {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occured.")
+
 
 # --- DELETE /{id} - Fix exception handling ---
 @router.delete("/{problem_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete Problem")

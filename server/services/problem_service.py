@@ -1,7 +1,9 @@
 import logging
 from sqlalchemy.orm import Session
 from ..models.problem import Problem as DBProblem 
-from ..schemas.problem import ProblemSchema, ProblemCreate, ProblemUpdate
+from ..schemas.problem import ProblemSchema, ProblemCreate, ProblemUpdate, ProblemPartialUpdate
+
+from typing import Optional
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -69,6 +71,39 @@ def update(db: Session, problem_id: int, problem_update: ProblemUpdate) -> DBPro
     except Exception as e:
         db.rollback()
         logger.error(f"Service: Unexpected error during problem update (id: {problem_id}): {e}", exc_info=True)
+        raise
+
+
+def patch(
+    db: Session, problem_id: int, problem_update: ProblemPartialUpdate
+) -> Optional[DBProblem]:
+    '''Partially update an existing problem using PATCH.'''
+    logger.info(f"Service: Attempting to partially update (PATCH) problem with id {problem_id}")
+    db_problem = get_one(db, problem_id)
+    if not db_problem:
+        logger.warning(f"Service: Problem with id {problem_id} not found for PATCH update.")
+        return None
+    
+    update_data = problem_update.model_dump(exclude_unset=True)
+
+    if not update_data:
+        logger.info(f"'Service: PATCH request for problem {problem_id} had no fields to update.")
+        return db_problem
+    
+    try:
+        for key, value in update_data.items():
+            setattr(db_problem, key, value)
+        logger.debug(f"Service: PATCH updating fields for problem {problem_id}: {update_data.keys()}")
+        db.commit()
+        db.refresh(db_problem)
+        logger.info(f"Service: Succesfully updated (PATCH) problem with id {problem_id}.")
+        return db_problem
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Service: Database error occurred during problem update (PATCH) (id: {problem_id}): {e}", exc_info=True)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Service: Unexpected error during problem update (PATCH) (id: {problem_id}): {e}")
         raise
 
 

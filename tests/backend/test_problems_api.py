@@ -25,6 +25,27 @@ UPDATE_PROBLEM_DATA = {
     "comments": "Updated comment",
 }
 
+PATCH_UPDATE_DATA_COMMENT_ONLY = {
+    "comments": "Partially updated comment only",
+}
+
+PATCH_UPDATE_DATA_CATEGORY_SOLUTION = {
+    "category": "G",
+    "solution": "The answer is 42.",
+}
+
+PATCH_UPDATE_DATA_VERSIONS = {
+    "latex_versions": ["Version 1", "Version 2"]
+}
+
+# --- Helper function ---
+def create_problem(client, data=None):
+    if data is None:
+        data = VALID_PROBLEM_DATA_1
+    response = client.post("/problems/", json=data)
+    assert response.status_code == status.HTTP_201_CREATED
+    return response.json()
+
 # --- Test Functions ---
 
 def test_create_problem_success(client):
@@ -120,3 +141,112 @@ def test_delete_problem_success(client):
     # Verify it's gone
     get_response = client.get(f"/problems/{problem_id}")
     assert get_response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_patch_problem_success_single_field(client):
+    # Arrange: Create a problem
+    created_problem = create_problem(client, VALID_PROBLEM_DATA_1)
+    problem_id = created_problem["id"]
+    original_latex = created_problem["latex_text"]
+    original_category = created_problem["category"]
+
+    # Act: Patch only the comments field
+    patch_response = client.patch(f"/problems/{problem_id}", json=PATCH_UPDATE_DATA_COMMENT_ONLY)
+
+    # Assert: Check status code and response body
+    assert patch_response.status_code == status.HTTP_200_OK
+    updated_data = patch_response.json()
+    assert updated_data["id"] == problem_id
+    assert updated_data["comments"] == PATCH_UPDATE_DATA_COMMENT_ONLY["comments"]
+    # Ensure other fields are unchanged
+    assert updated_data["latex_text"] == original_latex
+    assert updated_data["category"] == original_category
+    assert updated_data["solution"] is None
+    assert updated_data["latex_versions"] is None
+
+    # Assert: Verify by reading again
+    get_response = client.get(f"/problems/{problem_id}")
+    assert get_response.status_code == status.HTTP_200_OK
+    verify_data = get_response.json()
+    assert verify_data["comments"] == PATCH_UPDATE_DATA_COMMENT_ONLY["comments"]
+    assert verify_data["latex_text"] == original_latex
+
+def test_patch_problem_success_multiple_fields(client):
+    # Arrange: Create a problem
+    created_problem = create_problem(client, VALID_PROBLEM_DATA_1)
+    problem_id = created_problem["id"]
+    original_latex = created_problem["latex_text"]
+    original_comments = created_problem["comments"]
+
+    # Act: Patch category and solution
+    patch_response = client.patch(f"/problems/{problem_id}", json=PATCH_UPDATE_DATA_CATEGORY_SOLUTION)
+
+    # Assert: Check status code and response body
+    assert patch_response.status_code == status.HTTP_200_OK
+    updated_data = patch_response.json()
+    assert updated_data["id"] == problem_id
+    assert updated_data["category"] == PATCH_UPDATE_DATA_CATEGORY_SOLUTION["category"]
+    assert updated_data["solution"] == PATCH_UPDATE_DATA_CATEGORY_SOLUTION["solution"]
+    # Ensure other fields are unchanged
+    assert updated_data["latex_text"] == original_latex
+    assert updated_data["comments"] == original_comments
+    assert updated_data["latex_versions"] is None
+
+    # Assert: Verify by reading again
+    get_response = client.get(f"/problems/{problem_id}")
+    assert get_response.status_code == status.HTTP_200_OK
+    verify_data = get_response.json()
+    assert verify_data["category"] == PATCH_UPDATE_DATA_CATEGORY_SOLUTION["category"]
+    assert verify_data["solution"] == PATCH_UPDATE_DATA_CATEGORY_SOLUTION["solution"]
+    assert verify_data["latex_text"] == original_latex
+
+def test_patch_problem_success_latex_versions(client):
+    # Arrange: Create a problem
+    created_problem = create_problem(client, VALID_PROBLEM_DATA_1)
+    problem_id = created_problem["id"]
+
+    # Act: Patch latex_versions
+    patch_response = client.patch(f"/problems/{problem_id}", json=PATCH_UPDATE_DATA_VERSIONS)
+
+    # Assert: Check status code and response body
+    assert patch_response.status_code == status.HTTP_200_OK
+    updated_data = patch_response.json()
+    assert updated_data["id"] == problem_id
+    # Note: JSON fields might be returned as lists
+    assert isinstance(updated_data["latex_versions"], list)
+    assert updated_data["latex_versions"] == PATCH_UPDATE_DATA_VERSIONS["latex_versions"]
+
+    # Assert: Verify by reading again
+    get_response = client.get(f"/problems/{problem_id}")
+    assert get_response.status_code == status.HTTP_200_OK
+    verify_data = get_response.json()
+    assert verify_data["latex_versions"] == PATCH_UPDATE_DATA_VERSIONS["latex_versions"]
+
+
+def test_patch_problem_not_found(client):
+    response = client.patch("/problems/999", json=PATCH_UPDATE_DATA_COMMENT_ONLY)
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+def test_patch_problem_invalid_category(client):
+    # Arrange: Create a problem
+    created_problem = create_problem(client)
+    problem_id = created_problem["id"]
+
+    # Act: Attempt to patch with an invalid category
+    invalid_patch_data = {"category": "X"} # 'X' is not in CategoryLiteral
+    response = client.patch(f"/problems/{problem_id}", json=invalid_patch_data)
+
+    # Assert: FastAPI/Pydantic should reject it
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+def test_patch_problem_empty_payload(client):
+    # Arrange: Create a problem
+    created_problem = create_problem(client)
+    problem_id = created_problem["id"]
+
+    # Act: Send PATCH request with an empty JSON body
+    response = client.patch(f"/problems/{problem_id}", json={})
+
+    # Assert: Should be a bad request as no data was sent
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "No update data is provided in PATCH request." in response.json()["detail"]
