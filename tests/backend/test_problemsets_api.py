@@ -287,37 +287,133 @@ def test_add_problem_to_problemset_position_conflict(client):
     response = client.post(f"/problemsets/{ps_id}/problems/{p2['id']}?position=1")
     assert response.status_code == status.HTTP_400_BAD_REQUEST 
 
-def test_remove_problem_from_problemset_success(client):
+def test_remove_problem_from_problemset_success_middle_element_shifts(client):
+    # Arrange: Create ps, p1, p2, p3. Link p1(pos1), p2(pos2), p3(pos3)
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p2 = create_problem(client, "Problem 2")
+    p3 = create_problem(client, "Problem 3")
+    ps_id = ps["id"]
+    p1_id, p2_id, p3_id = p1["id"], p2["id"], p3["id"]
+
+    link_problem_to_problemset(client, ps_id, p1_id) # pos 1
+    link_problem_to_problemset(client, ps_id, p2_id) # pos 2
+    link_problem_to_problemset(client, ps_id, p3_id) # pos 3
+
+    # Act: Delete the middle problem (p2 at pos 2)
+    response = client.delete(f"/problemsets/{ps_id}/problems/{p2_id}")
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    # Assert: Verify p1 is pos 1, p3 is now pos 2
+    ps_response = client.get(f"/problemsets/{ps_id}")
+    assert ps_response.status_code == status.HTTP_200_OK
+    ps_data = ps_response.json()
+    assert len(ps_data["problems"]) == 2
+
+    # Sort results by position for reliable assertion
+    sorted_problems = sorted(ps_data["problems"], key=lambda x: x["position"])
+
+    assert sorted_problems[0]["problem"]["id"] == p1_id
+    assert sorted_problems[0]["position"] == 1
+    assert sorted_problems[1]["problem"]["id"] == p3_id
+    assert sorted_problems[1]["position"] == 2 # Position shifted from 3 to 2
+
+def test_remove_problem_from_problemset_success_first_element_shifts(client):
+    # Arrange: Create ps, p1, p2, p3. Link p1(pos1), p2(pos2), p3(pos3)
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p2 = create_problem(client, "Problem 2")
+    p3 = create_problem(client, "Problem 3")
+    ps_id = ps["id"]
+    p1_id, p2_id, p3_id = p1["id"], p2["id"], p3["id"]
+
+    link_problem_to_problemset(client, ps_id, p1_id) # pos 1
+    link_problem_to_problemset(client, ps_id, p2_id) # pos 2
+    link_problem_to_problemset(client, ps_id, p3_id) # pos 3
+
+    # Act: Delete the first problem (p1 at pos 1)
+    response = client.delete(f"/problemsets/{ps_id}/problems/{p1_id}")
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    # Assert: Verify p2 is pos 1, p3 is pos 2
+    ps_response = client.get(f"/problemsets/{ps_id}")
+    assert ps_response.status_code == status.HTTP_200_OK
+    ps_data = ps_response.json()
+    assert len(ps_data["problems"]) == 2
+
+    sorted_problems = sorted(ps_data["problems"], key=lambda x: x["position"])
+
+    assert sorted_problems[0]["problem"]["id"] == p2_id
+    assert sorted_problems[0]["position"] == 1 # Position shifted from 2 to 1
+    assert sorted_problems[1]["problem"]["id"] == p3_id
+    assert sorted_problems[1]["position"] == 2 # Position shifted from 3 to 2
+
+def test_remove_problem_from_problemset_success_last_element_no_shift(client):
+    # Arrange: Create ps, p1, p2. Link p1(pos1), p2(pos2)
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p2 = create_problem(client, "Problem 2")
+    ps_id = ps["id"]
+    p1_id, p2_id = p1["id"], p2["id"]
+
+    link_problem_to_problemset(client, ps_id, p1_id) # pos 1
+    link_problem_to_problemset(client, ps_id, p2_id) # pos 2
+
+    # Act: Delete the last problem (p2 at pos 2)
+    response = client.delete(f"/problemsets/{ps_id}/problems/{p2_id}")
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    # Assert: Verify p1 is still pos 1
+    ps_response = client.get(f"/problemsets/{ps_id}")
+    assert ps_response.status_code == status.HTTP_200_OK
+    ps_data = ps_response.json()
+    assert len(ps_data["problems"]) == 1
+
+    assert ps_data["problems"][0]["problem"]["id"] == p1_id
+    assert ps_data["problems"][0]["position"] == 1 # Position remains unchanged
+
+def test_remove_problem_from_problemset_success_only_element(client):
+    # Arrange: Create ps, p1. Link p1(pos1)
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    ps_id = ps["id"]
+    p1_id = p1["id"]
+
+    link_problem_to_problemset(client, ps_id, p1_id) # pos 1
+
+    # Act: Delete the only problem
+    response = client.delete(f"/problemsets/{ps_id}/problems/{p1_id}")
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    # Assert: Verify problemset is empty
+    ps_response = client.get(f"/problemsets/{ps_id}")
+    assert ps_response.status_code == status.HTTP_200_OK
+    ps_data = ps_response.json()
+    assert len(ps_data["problems"]) == 0
+
+
+def test_remove_problem_from_problemset_not_linked(client):
     ps = create_problemset(client)
     problem = create_problem(client)
     ps_id = ps["id"]
     p_id = problem["id"]
-    client.post(f"/problemsets/{ps_id}/problems/{p_id}") 
-    response = client.delete(f"/problemsets/{ps_id}/problems/{p_id}")
-    assert response.status_code == status.HTTP_204_NO_CONTENT
-    ps_response = client.get(f"/problemsets/{ps_id}")
-    ps_data = ps_response.json()
-    assert len(ps_data["problems"]) == 0
-
-def test_remove_problem_from_problemset_not_linked(client):
-    ps = create_problemset(client)
-    problem = create_problem(client) 
-    ps_id = ps["id"]
-    p_id = problem["id"]
     response = client.delete(f"/problemsets/{ps_id}/problems/{p_id}")
     assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert "Problem association not found" in response.json()["detail"]
 
 def test_remove_problem_from_problemset_non_existent_problemset(client):
     problem = create_problem(client)
     p_id = problem["id"]
     response = client.delete(f"/problemsets/9999/problems/{p_id}")
-    assert response.status_code == status.HTTP_404_NOT_FOUND 
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert "Problem association not found" in response.json()["detail"]
 
 def test_remove_problem_from_problemset_non_existent_problem(client):
     ps = create_problemset(client)
     ps_id = ps["id"]
     response = client.delete(f"/problemsets/{ps_id}/problems/9999")
     assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert "Problem association not found" in response.json()["detail"]
 
 # --- NEW TESTS FOR REORDERING PROBLEMS ---
 

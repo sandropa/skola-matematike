@@ -3,7 +3,7 @@ import logging
 from typing import List, Optional 
 
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func 
+from sqlalchemy import func, update as sql_update
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError 
 
 # --- Import ORM Models ---
@@ -292,8 +292,14 @@ def add_problem_to_problemset(
 def remove_problem_from_problemset(
     db: Session, problemset_id: int, problem_id: int
 ) -> bool:
+    """
+    Removes the link between a specific problem and problemset.
+    Also shifts down the positions of subsequent problems in the same problemset.
+    Returns True on success, False if the link doesn't exist.
+    Raises ProblemsetServiceError for database or unexpected errors.
+    """
     logger.info(
-        f"Service: Attempting to remove problem {problem_id} from problemset {problemset_id}."
+        f"Service: Attempting to remove problem {problem_id} from problemset {problemset_id} and shift positions."
     )
 
     link_to_delete = (
@@ -308,17 +314,40 @@ def remove_problem_from_problemset(
         )
         return False
 
+    deleted_position = link_to_delete.position
+
     try:
         db.delete(link_to_delete)
+        logger.debug(f"Service: Marked link for deletion (problem {problem_id}, problemset {problemset_id}).")
+
+        # --- Shift subsequent positions ---
+        if deleted_position is not None:
+            logger.debug(f"Service: Shifting positions greater than {deleted_position} for problemset {problemset_id}.")
+            # Use SQLAlchemy Core update statement for efficiency
+            stmt = (
+                sql_update(ProblemsetProblems)
+                .where(
+                    ProblemsetProblems.id_problemset == problemset_id,
+                    ProblemsetProblems.position > deleted_position
+                )
+                .values(position=ProblemsetProblems.position - 1)
+                .execution_options(synchronize_session="fetch") # Important for ORM consistency
+            )
+            db.execute(stmt)
+            logger.debug("Service: Executed position shift statement.")
+        else:
+             logger.warning(f"Service: Deleted link did not have a position. Skipping position shift.")
+
+
         db.commit()
         logger.info(
-            f"Service: Successfully removed problem {problem_id} from problemset {problemset_id}."
+            f"Service: Successfully removed problem {problem_id} from problemset {problemset_id} and shifted positions."
         )
         return True
     except SQLAlchemyError as e:
         db.rollback()
         logger.error(
-            f"Service: Database error removing problem {problem_id} from problemset {problemset_id}: {e}",
+            f"Service: Database error removing problem {problem_id} from problemset {problemset_id} or shifting: {e}",
             exc_info=True,
         )
         raise ProblemsetServiceError(f"Database error removing problem from problemset: {e}")
@@ -329,6 +358,7 @@ def remove_problem_from_problemset(
             exc_info=True,
         )
         raise ProblemsetServiceError(f"Unexpected error removing problem from problemset: {e}")
+
 
 def reorder_problems_in_problemset(
     db: Session, problemset_id: int, problem_ids_ordered: List[int]
