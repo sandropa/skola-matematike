@@ -1,11 +1,9 @@
 # tests/backend/test_problemsets_api.py
 
-import pytest # Keep pytest import if needed for specific markers later
-from fastapi import status # Import status codes
+import pytest 
+from fastapi import status 
 
-# Note: The 'client' and 'test_db' fixtures are automatically available from conftest.py
-
-# --- Test Data (Matching ProblemsetCreate/Update) ---
+# Test Data
 VALID_PROBLEMSET_DATA_1 = {
     "title": "Ljetni Kamp Algebra 1",
     "type": "predavanje",
@@ -22,19 +20,33 @@ VALID_PROBLEMSET_DATA_2 = {
 
 UPDATE_PROBLEMSET_DATA = {
     "title": "Ljetni Kamp Algebra 1 - Updated",
-    "type": "predavanje-updated", # Changed type
-    "part_of": "ljetni kamp 2024", # Changed context
-    "group_name": "pocetna-revised" # Changed group
+    "type": "predavanje-updated", 
+    "part_of": "ljetni kamp 2024", 
+    "group_name": "pocetna-revised" 
 }
 
 INVALID_PROBLEMSET_DATA_MISSING_FIELD = {
-    # Missing 'title' which is required
     "type": "predavanje",
     "part_of": "ljetni kamp",
     "group_name": "pocetna"
 }
 
-# --- NEW CRUD Test Functions ---
+# --- Helper function to create a problem ---
+def create_problem(client, latex_text="Test Problem", category="A"):
+    problem_data = {"latex_text": latex_text, "category": category}
+    response = client.post("/problems/", json=problem_data)
+    assert response.status_code == status.HTTP_201_CREATED
+    return response.json()
+
+# --- Helper function to create a problemset ---
+def create_problemset(client, data=None):
+    if data is None:
+        data = VALID_PROBLEMSET_DATA_1
+    response = client.post("/problemsets/", json=data)
+    assert response.status_code == status.HTTP_201_CREATED
+    return response.json()
+
+# --- Existing CRUD Test Functions ---
 
 def test_create_problemset_success(client):
     response = client.post("/problemsets/", json=VALID_PROBLEMSET_DATA_1)
@@ -45,15 +57,13 @@ def test_create_problemset_success(client):
     assert data["part_of"] == VALID_PROBLEMSET_DATA_1["part_of"]
     assert data["group_name"] == VALID_PROBLEMSET_DATA_1["group_name"]
     assert "id" in data
-    assert "problems" in data # Should be an empty list by default on creation
+    assert "problems" in data 
     assert isinstance(data["problems"], list)
 
 def test_create_problemset_missing_required_field(client):
     response = client.post("/problemsets/", json=INVALID_PROBLEMSET_DATA_MISSING_FIELD)
-    # FastAPI/Pydantic validation should catch this
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
-# Test creating with optional field missing (should work)
 def test_create_problemset_optional_field_missing(client):
     data_no_group = VALID_PROBLEMSET_DATA_1.copy()
     del data_no_group["group_name"]
@@ -61,7 +71,7 @@ def test_create_problemset_optional_field_missing(client):
     assert response.status_code == status.HTTP_201_CREATED
     data = response.json()
     assert data["title"] == data_no_group["title"]
-    assert data["group_name"] is None # Check it defaults to None or the DB default
+    assert data["group_name"] is None 
 
 def test_read_all_problemsets_empty(client):
     response = client.get("/problemsets/")
@@ -69,30 +79,25 @@ def test_read_all_problemsets_empty(client):
     assert response.json() == []
 
 def test_read_all_problemsets_with_data(client):
-    # Create a couple of problemsets
-    client.post("/problemsets/", json=VALID_PROBLEMSET_DATA_1)
-    client.post("/problemsets/", json=VALID_PROBLEMSET_DATA_2)
+    create_problemset(client, VALID_PROBLEMSET_DATA_1)
+    create_problemset(client, VALID_PROBLEMSET_DATA_2)
 
     response = client.get("/problemsets/")
     assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert len(data) == 2
-    # Check titles to ensure different items were returned (order might vary)
     titles = {item["title"] for item in data}
     assert VALID_PROBLEMSET_DATA_1["title"] in titles
     assert VALID_PROBLEMSET_DATA_2["title"] in titles
 
 def test_read_problemset_not_found(client):
-    response = client.get("/problemsets/999") # Assume 999 doesn't exist
+    response = client.get("/problemsets/999") 
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 def test_read_problemset_success(client):
-    # Create a problemset
-    create_response = client.post("/problemsets/", json=VALID_PROBLEMSET_DATA_1)
-    assert create_response.status_code == status.HTTP_201_CREATED
-    problemset_id = create_response.json()["id"]
+    created_ps = create_problemset(client)
+    problemset_id = created_ps["id"]
 
-    # Read it back
     response = client.get(f"/problemsets/{problemset_id}")
     assert response.status_code == status.HTTP_200_OK
     data = response.json()
@@ -100,19 +105,15 @@ def test_read_problemset_success(client):
     assert data["title"] == VALID_PROBLEMSET_DATA_1["title"]
     assert data["type"] == VALID_PROBLEMSET_DATA_1["type"]
     assert data["group_name"] == VALID_PROBLEMSET_DATA_1["group_name"]
-    # Add checks for other fields as needed
 
 def test_update_problemset_not_found(client):
     response = client.put("/problemsets/999", json=UPDATE_PROBLEMSET_DATA)
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 def test_update_problemset_success(client):
-    # Create a problemset
-    create_response = client.post("/problemsets/", json=VALID_PROBLEMSET_DATA_1)
-    assert create_response.status_code == status.HTTP_201_CREATED
-    problemset_id = create_response.json()["id"]
+    created_ps = create_problemset(client)
+    problemset_id = created_ps["id"]
 
-    # Update it
     update_response = client.put(f"/problemsets/{problemset_id}", json=UPDATE_PROBLEMSET_DATA)
     assert update_response.status_code == status.HTTP_200_OK
     updated_data = update_response.json()
@@ -122,7 +123,6 @@ def test_update_problemset_success(client):
     assert updated_data["part_of"] == UPDATE_PROBLEMSET_DATA["part_of"]
     assert updated_data["group_name"] == UPDATE_PROBLEMSET_DATA["group_name"]
 
-    # Verify by reading again
     get_response = client.get(f"/problemsets/{problemset_id}")
     assert get_response.status_code == status.HTTP_200_OK
     verify_data = get_response.json()
@@ -130,12 +130,9 @@ def test_update_problemset_success(client):
     assert verify_data["type"] == UPDATE_PROBLEMSET_DATA["type"]
 
 def test_update_problemset_invalid_data(client):
-    # Create a problemset
-    create_response = client.post("/problemsets/", json=VALID_PROBLEMSET_DATA_1)
-    assert create_response.status_code == status.HTTP_201_CREATED
-    problemset_id = create_response.json()["id"]
+    created_ps = create_problemset(client)
+    problemset_id = created_ps["id"]
 
-    # Attempt update with missing required field
     invalid_update_data = UPDATE_PROBLEMSET_DATA.copy()
     del invalid_update_data["title"]
     update_response = client.put(f"/problemsets/{problemset_id}", json=invalid_update_data)
@@ -147,57 +144,170 @@ def test_delete_problemset_not_found(client):
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 def test_delete_problemset_success(client):
-    # Create a problemset
-    create_response = client.post("/problemsets/", json=VALID_PROBLEMSET_DATA_1)
-    assert create_response.status_code == status.HTTP_201_CREATED
-    problemset_id = create_response.json()["id"]
+    created_ps = create_problemset(client)
+    problemset_id = created_ps["id"]
 
-    # Delete it
     delete_response = client.delete(f"/problemsets/{problemset_id}")
     assert delete_response.status_code == status.HTTP_204_NO_CONTENT
 
-    # Verify it's gone by trying to get it
     get_response = client.get(f"/problemsets/{problemset_id}")
     assert get_response.status_code == status.HTTP_404_NOT_FOUND
 
-
-# --- KEEP Existing Tests (Lecture Data, PDF, etc.) ---
-# Example of how one might look after adding new ones
-
-# This test might be redundant now with test_read_all_problemsets_...
-# Or keep it if it checks something specific about the GET / route
 def test_read_all_problemsets_returns_list(client):
-     """ Ensure GET /problemsets returns a list, even if empty """
      response = client.get("/problemsets/")
      assert response.status_code == status.HTTP_200_OK
      assert isinstance(response.json(), list)
 
+# --- NEW TESTS FOR PROBLEM ASSOCIATIONS ---
 
-# Keep tests for the lecture-specific endpoint if still needed
-# Example (assuming you have setup data for these)
+def test_add_problem_to_problemset_success_append(client):
+    ps = create_problemset(client)
+    problem = create_problem(client, "Problem to append")
+    ps_id = ps["id"]
+    p_id = problem["id"]
+
+    response = client.post(f"/problemsets/{ps_id}/problems/{p_id}")
+    assert response.status_code == status.HTTP_201_CREATED
+    link_data = response.json()
+    assert link_data["problem"]["id"] == p_id
+    assert link_data["position"] == 1 # First problem appended
+
+    # Verify by getting the problemset
+    ps_response = client.get(f"/problemsets/{ps_id}")
+    assert ps_response.status_code == status.HTTP_200_OK
+    ps_data = ps_response.json()
+    assert len(ps_data["problems"]) == 1
+    assert ps_data["problems"][0]["problem"]["id"] == p_id
+    assert ps_data["problems"][0]["position"] == 1
+
+def test_add_problem_to_problemset_success_specific_position(client):
+    ps = create_problemset(client)
+    problem = create_problem(client, "Problem at pos 1")
+    ps_id = ps["id"]
+    p_id = problem["id"]
+
+    response = client.post(f"/problemsets/{ps_id}/problems/{p_id}?position=1")
+    assert response.status_code == status.HTTP_201_CREATED
+    link_data = response.json()
+    assert link_data["problem"]["id"] == p_id
+    assert link_data["position"] == 1
+
+def test_add_problem_to_problemset_append_multiple(client):
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p2 = create_problem(client, "Problem 2")
+    ps_id = ps["id"]
+
+    # Add first problem (appends to pos 1)
+    client.post(f"/problemsets/{ps_id}/problems/{p1['id']}")
+    # Add second problem (appends to pos 2)
+    response_p2 = client.post(f"/problemsets/{ps_id}/problems/{p2['id']}")
+    assert response_p2.status_code == status.HTTP_201_CREATED
+    link_data_p2 = response_p2.json()
+    assert link_data_p2["position"] == 2
+
+    # Verify
+    ps_response = client.get(f"/problemsets/{ps_id}")
+    ps_data = ps_response.json()
+    assert len(ps_data["problems"]) == 2
+    assert ps_data["problems"][0]["problem"]["id"] == p1["id"]
+    assert ps_data["problems"][0]["position"] == 1
+    assert ps_data["problems"][1]["problem"]["id"] == p2["id"]
+    assert ps_data["problems"][1]["position"] == 2
+
+
+def test_add_problem_to_problemset_non_existent_problemset(client):
+    problem = create_problem(client)
+    p_id = problem["id"]
+    response = client.post(f"/problemsets/9999/problems/{p_id}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert "Problemset with id 9999 not found" in response.json()["detail"]
+
+def test_add_problem_to_problemset_non_existent_problem(client):
+    ps = create_problemset(client)
+    ps_id = ps["id"]
+    response = client.post(f"/problemsets/{ps_id}/problems/9999")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert "Problem with id 9999 not found" in response.json()["detail"]
+
+def test_add_problem_to_problemset_already_linked(client):
+    ps = create_problemset(client)
+    problem = create_problem(client)
+    ps_id = ps["id"]
+    p_id = problem["id"]
+
+    client.post(f"/problemsets/{ps_id}/problems/{p_id}") # First successful link
+    response = client.post(f"/problemsets/{ps_id}/problems/{p_id}") # Attempt again
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert f"Problem {p_id} is already in problemset {ps_id}" in response.json()["detail"]
+
+def test_add_problem_to_problemset_position_conflict(client):
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p2 = create_problem(client, "Problem 2")
+    ps_id = ps["id"]
+
+    # Add p1 at position 1
+    client.post(f"/problemsets/{ps_id}/problems/{p1['id']}?position=1")
+    
+    # Attempt to add p2 at position 1
+    response = client.post(f"/problemsets/{ps_id}/problems/{p2['id']}?position=1")
+    assert response.status_code == status.HTTP_400_BAD_REQUEST # Or 409 based on final router logic
+    assert f"Position 1 in problemset {ps_id} is already occupied" in response.json()["detail"]
+
+def test_remove_problem_from_problemset_success(client):
+    ps = create_problemset(client)
+    problem = create_problem(client)
+    ps_id = ps["id"]
+    p_id = problem["id"]
+
+    client.post(f"/problemsets/{ps_id}/problems/{p_id}") # Link them
+
+    response = client.delete(f"/problemsets/{ps_id}/problems/{p_id}")
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    # Verify
+    ps_response = client.get(f"/problemsets/{ps_id}")
+    ps_data = ps_response.json()
+    assert len(ps_data["problems"]) == 0
+
+def test_remove_problem_from_problemset_not_linked(client):
+    ps = create_problemset(client)
+    problem = create_problem(client) # Problem exists but not linked
+    ps_id = ps["id"]
+    p_id = problem["id"]
+
+    response = client.delete(f"/problemsets/{ps_id}/problems/{p_id}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert "Problem association not found" in response.json()["detail"]
+
+def test_remove_problem_from_problemset_non_existent_problemset(client):
+    problem = create_problem(client)
+    p_id = problem["id"]
+    response = client.delete(f"/problemsets/9999/problems/{p_id}")
+    # The link won't be found because the problemset doesn't exist, leading to 404 for the association
+    assert response.status_code == status.HTTP_404_NOT_FOUND 
+    assert "Problem association not found" in response.json()["detail"]
+
+
+def test_remove_problem_from_problemset_non_existent_problem(client):
+    ps = create_problemset(client)
+    ps_id = ps["id"]
+    response = client.delete(f"/problemsets/{ps_id}/problems/9999")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert "Problem association not found" in response.json()["detail"]
+
+
+# --- KEEP Existing Tests (Lecture Data, PDF, etc.) ---
 @pytest.mark.skip(reason="Requires specific DB setup for lecture data tests")
 def test_get_lecture_data_success(client, test_db):
-     # --- ARRANGE ---
-     # Need to manually create a Problemset, Problems, and links in test_db
-     # Example:
-     # ps = Problemset(id=69, title="Sample Lecture", type="predavanje", ...)
-     # p1 = Problem(id=101, latex_text="Problem 1", category="A")
-     # p2 = Problem(id=102, latex_text="Problem 2", category="G")
-     # link1 = ProblemsetProblems(id_problemset=69, id_problem=101, position=1)
-     # link2 = ProblemsetProblems(id_problemset=69, id_problem=102, position=2)
-     # test_db.add_all([ps, p1, p2, link1, link2])
-     # test_db.commit()
-     problemset_id = 69 # Use the ID created
-
-     # --- ACT ---
+     problemset_id = 69 
      response = client.get(f"/problemsets/{problemset_id}/lecture-data")
-
-     # --- ASSERT ---
      assert response.status_code == status.HTTP_200_OK
      data = response.json()
      assert data["id"] == problemset_id
-     assert data["title"] == "Sample Lecture" # Check title
-     assert len(data["problems"]) == 2 # Check number of problems
+     assert data["title"] == "Sample Lecture" 
+     assert len(data["problems"]) == 2 
      assert data["problems"][0]["position"] == 1
      assert data["problems"][0]["problem"]["latex_text"] == "Problem 1"
      assert data["problems"][1]["position"] == 2
@@ -205,27 +315,14 @@ def test_get_lecture_data_success(client, test_db):
 
 @pytest.mark.skip(reason="Requires specific DB setup for lecture data tests")
 def test_get_lecture_data_not_found_wrong_id(client):
-     response = client.get("/problemsets/999/lecture-data") # Non-existent ID
+     response = client.get("/problemsets/999/lecture-data") 
      assert response.status_code == status.HTTP_404_NOT_FOUND
 
-# You might remove this test if the endpoint now returns any type, not just 'predavanje'
 @pytest.mark.skip(reason="Endpoint logic might have changed")
 def test_get_lecture_data_not_found_wrong_type(client, test_db):
-     # --- ARRANGE ---
-     # Create a problemset that is NOT 'predavanje'
-     # ps_vjezbe = Problemset(id=70, title="Sample Vjezbe", type="vjezbe", ...)
-     # test_db.add(ps_vjezbe)
-     # test_db.commit()
      problemset_id = 70
-
-     # --- ACT ---
-     # The endpoint might return 200 OK now, or 404 if logic still filters type
      response = client.get(f"/problemsets/{problemset_id}/lecture-data")
-
-     # --- ASSERT ---
-     # Adjust assertion based on current endpoint behavior
-     # assert response.status_code == status.HTTP_404_NOT_FOUND # If it still filters type
-     assert response.status_code == status.HTTP_200_OK # If it returns any type
+     assert response.status_code == status.HTTP_200_OK 
      if response.status_code == status.HTTP_200_OK:
          assert response.json()["type"] == "vjezbe"
 
@@ -233,5 +330,3 @@ def test_get_lecture_data_not_found_wrong_type(client, test_db):
 def test_get_lecture_data_invalid_id_format(client):
      response = client.get("/problemsets/invalid-id/lecture-data")
      assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-
-# Add tests for the PDF download endpoint if desired (more complex)
