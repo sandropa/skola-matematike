@@ -3,19 +3,22 @@
 import logging
 import io
 
-from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Query # Added Query
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Query 
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import SQLAlchemyError 
 
-from typing import List, Optional # Added Optional
+from typing import List, Optional 
+
+# Import Request Body model for reordering
+from pydantic import BaseModel, Field
 
 # Import service classes and their potential exceptions
 try:
     from ..services.gemini_service import GeminiService, GeminiServiceError, GeminiJSONError, GeminiResponseValidationError
     from ..services.problemset_service import ProblemsetService, ProblemsetServiceError
-    from ..services import problemset_service # Standalone CRUD functions
-    from ..services import problem_service # For checking problem existence
+    from ..services import problemset_service 
+    from ..services import problem_service 
     from ..services.pdf_service import get_problemset_pdf, PDFGenerationError, ProblemsetNotFound
 except ImportError as e:
      logging.error(f"Failed to import service classes/functions: {e}")
@@ -41,13 +44,17 @@ except ImportError as e:
 # Import SQLAlchemy ORM models
 try:
     from ..models.problemset import Problemset
-    from ..models.problem import Problem # For checking problem existence
-    from ..models.problemset_problems import ProblemsetProblems # For checking link existence
+    from ..models.problem import Problem 
+    from ..models.problemset_problems import ProblemsetProblems 
 except ImportError as e:
     logging.error(f"Failed to import SQLAlchemy models: {e}")
     raise
 
 logger = logging.getLogger(__name__)
+
+# --- Request Body Model for Reordering ---
+class ReorderProblemsPayload(BaseModel):
+    problem_ids_ordered: List[int] = Field(..., examples=[[3, 1, 2]])
 
 router = APIRouter(
     prefix="/problemsets",
@@ -71,6 +78,10 @@ def create_new_problemset(
     try:
         created_problemset = problemset_service.create(db=db, problemset=problemset)
         logger.info(f"Router: Problemset created successfully with id {created_problemset.id}")
+        # Eagerly load relationships for the response model
+        db.refresh(created_problemset)
+        if hasattr(Problemset, 'problems'):
+             db.query(Problemset).options(joinedload(Problemset.problems)).filter(Problemset.id == created_problemset.id).first()
         return created_problemset
     except (SQLAlchemyError, ProblemsetServiceError) as e: 
          logger.error(f"Router: Database/Service error during problemset creation: {e}", exc_info=True)
@@ -108,10 +119,15 @@ def read_all_problemsets(db: Session = Depends(get_db)):
 def read_problemset(problemset_id: int, db: Session = Depends(get_db)):
     logger.info(f"Router: Request received for GET /problemsets/{problemset_id}")
     try:
-        problemset_data = problemset_service.get_one(db, problemset_id) # Renamed to avoid conflict
+        problemset_data = problemset_service.get_one(db, problemset_id) 
         if problemset_data is None:
             logger.warning(f"Router: Problemset with id {problemset_id} not found.")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problemset not found")
+        
+        # Sort problems by position before returning (consistency)
+        if problemset_data.problems:
+            problemset_data.problems.sort(key=lambda link: link.position if link.position is not None else float('inf'))
+            
         logger.info(f"Router: Returning problemset with id {problemset_id}.")
         return problemset_data
     except ProblemsetServiceError as e:
@@ -141,6 +157,10 @@ def update_existing_problemset(
             logger.warning(f"Router: Problemset with id {problemset_id} not found for update.")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problemset not found")
         logger.info(f"Router: Problemset {problemset_id} updated successfully.")
+        # Eager load relationships for the response model
+        db.refresh(updated_problemset)
+        if hasattr(Problemset, 'problems'):
+             db.query(Problemset).options(joinedload(Problemset.problems)).filter(Problemset.id == updated_problemset.id).first()
         return updated_problemset
     except (SQLAlchemyError, ProblemsetServiceError) as e:
          logger.error(f"Router: Database/Service error during problemset update (id: {problemset_id}): {e}", exc_info=True)
@@ -192,43 +212,34 @@ def add_problem_to_problemset_endpoint(
     position: Optional[int] = Query(None, ge=1, description="Optional position for the problem in the set. If None, appends to the end."),
     db: Session = Depends(get_db)
 ):
-    """
-    Adds an existing problem to a problemset.
-    - **problemset_id**: ID of the problemset.
-    - **problem_id**: ID of the problem to add.
-    - **position** (optional query param): Desired 1-based position. If not provided, appends.
-    """
     logger.info(f"Router: Attempting to add problem {problem_id} to problemset {problemset_id} at position {position}.")
     try:
         link = problemset_service.add_problem_to_problemset(
             db, problemset_id=problemset_id, problem_id=problem_id, position=position
         )
         if link is None:
-            # Check for specific reasons why the link might be None
             ps = problemset_service.get_one(db, problemset_id)
             if not ps:
                 logger.warning(f"Router: Add failed - Problemset {problemset_id} not found.")
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Problemset with id {problemset_id} not found.")
             
-            prob = problem_service.get_one(db, problem_id) # Uses problem_service
+            prob = problem_service.get_one(db, problem_id) 
             if not prob:
                 logger.warning(f"Router: Add failed - Problem {problem_id} not found.")
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Problem with id {problem_id} not found.")
             
-            # Check if link already exists
             existing_db_link = db.query(ProblemsetProblems).filter_by(id_problemset=problemset_id, id_problem=problem_id).first()
             if existing_db_link:
                 logger.warning(f"Router: Add failed - Problem {problem_id} already in problemset {problemset_id}.")
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Problem {problem_id} is already in problemset {problemset_id}.")
 
-            # Check for position conflict if position was specified
             if position is not None:
                 occupied_by_other = (
                     db.query(ProblemsetProblems)
                     .filter(
                         ProblemsetProblems.id_problemset == problemset_id,
                         ProblemsetProblems.position == position,
-                        ProblemsetProblems.id_problem != problem_id # Ensure it's not the same problem if update logic were here
+                        ProblemsetProblems.id_problem != problem_id 
                     )
                     .first()
                 )
@@ -236,7 +247,6 @@ def add_problem_to_problemset_endpoint(
                     logger.warning(f"Router: Add failed - Position {position} in problemset {problemset_id} is already occupied.")
                     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Position {position} in problemset {problemset_id} is already occupied.")
             
-            # If none of the above, it's a generic failure from the service for other logical reasons
             logger.error(f"Router: Add problem to problemset failed for an unknown reason after checks.")
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to add problem to problemset. Ensure position is valid if provided.")
 
@@ -245,7 +255,7 @@ def add_problem_to_problemset_endpoint(
     except ProblemsetServiceError as e:
         logger.error(f"Router: Service error adding problem to problemset: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
-    except HTTPException as http_exc: # Re-raise HTTPExceptions from checks
+    except HTTPException as http_exc: 
         raise http_exc
     except Exception as e:
         logger.error(f"Router: Unexpected error adding problem to problemset: {e}", exc_info=True)
@@ -263,11 +273,6 @@ def remove_problem_from_problemset_endpoint(
     problem_id: int,
     db: Session = Depends(get_db)
 ):
-    """
-    Removes a problem from a problemset.
-    - **problemset_id**: ID of the problemset.
-    - **problem_id**: ID of the problem to remove.
-    """
     logger.info(f"Router: Attempting to remove problem {problem_id} from problemset {problemset_id}.")
     try:
         success = problemset_service.remove_problem_from_problemset(
@@ -278,15 +283,73 @@ def remove_problem_from_problemset_endpoint(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem association not found.")
         
         logger.info(f"Router: Successfully removed problem {problem_id} from problemset {problemset_id}.")
-        return None # FastAPI handles 204 No Content
+        return None 
     except ProblemsetServiceError as e:
         logger.error(f"Router: Service error removing problem from problemset: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
-    except HTTPException as http_exc: # Re-raise HTTPExceptions from checks
+    except HTTPException as http_exc: 
         raise http_exc
     except Exception as e:
         logger.error(f"Router: Unexpected error removing problem from problemset: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
+
+# --- NEW ENDPOINT FOR REORDERING PROBLEMS ---
+@router.put(
+    "/{problemset_id}/problems/order",
+    response_model=ProblemsetSchema, # Return the full updated problemset
+    summary="Reorder Problems in a Problemset",
+    tags=["Problemsets", "Associations"]
+)
+def reorder_problems_in_problemset_endpoint(
+    problemset_id: int,
+    payload: ReorderProblemsPayload, # Use the Pydantic model for the body
+    db: Session = Depends(get_db)
+):
+    """
+    Updates the order of problems within a specific problemset.
+    The request body should contain a list of problem IDs in the desired new order.
+    This list MUST contain ALL problems currently associated with the problemset.
+    """
+    logger.info(f"Router: Reordering problems for problemset {problemset_id}. New order: {payload.problem_ids_ordered}")
+    try:
+        updated_links = problemset_service.reorder_problems_in_problemset(
+            db, problemset_id=problemset_id, problem_ids_ordered=payload.problem_ids_ordered
+        )
+        
+        if updated_links is None:
+            # Service layer should raise specific exceptions for validation errors,
+            # but if it returns None for 'not found' condition:
+            logger.warning(f"Router: Reorder failed - Problemset {problemset_id} not found.")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Problemset {problemset_id} not found for reordering.")
+
+        logger.info(f"Router: Successfully reordered problems for problemset {problemset_id}.")
+        
+        # Fetch the updated problemset to return it
+        # get_one already eager loads, but we call it again after commit
+        updated_problemset = problemset_service.get_one(db, problemset_id)
+        if not updated_problemset:
+             # This shouldn't happen if reorder succeeded, but handle defensively
+             logger.error(f"Router: Failed to fetch problemset {problemset_id} after successful reorder.")
+             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve updated problemset.")
+        
+        # Sort problems by position before returning
+        if updated_problemset.problems:
+            updated_problemset.problems.sort(key=lambda link: link.position if link.position is not None else float('inf'))
+            
+        return updated_problemset
+
+    except ProblemsetServiceError as e:
+        logger.error(f"Router: Service error during problem reorder for problemset {problemset_id}: {e}", exc_info=False) # Log less verbosely for validation errors
+        # Check for specific validation messages if needed, otherwise return 400
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except HTTPException as http_exc: # Re-raise 404 if raised explicitly by service
+        raise http_exc
+    except Exception as e:
+        logger.error(f"Router: Unexpected error reordering problems for problemset {problemset_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred during reordering.")
+
+
+# --- Existing Lecture/PDF Specific Endpoints ---
 
 @router.get(
     "/{problemset_id}/lecture-data",
@@ -301,33 +364,8 @@ def get_lecture_data_by_id(
     problemset_id: int,
     db: Session = Depends(get_db)
 ) -> ProblemsetSchema:
-    logger.info(f"Fetching EAGER data for problemset ID: {problemset_id}")
-    problemset_orm = db.query(Problemset)\
-        .options(
-            joinedload(Problemset.problems) 
-            .joinedload(ProblemsetProblems.problem) 
-        )\
-        .filter(Problemset.id == problemset_id)\
-        .first()
-
-    if not problemset_orm:
-        logger.warning(f"Problemset with ID {problemset_id} not found (for lecture-data).")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Problemset with ID {problemset_id} not found."
-        )
-
-    try:
-        if problemset_orm.problems:
-             problemset_orm.problems.sort(key=lambda link: link.position if link.position is not None else float('inf'))
-             logger.debug(f"Sorted problems for problemset ID {problemset_id} by position.")
-        else:
-             logger.debug(f"No problems found for problemset ID {problemset_id} to sort.")
-    except Exception as e:
-        logger.error(f"Error sorting problems by position for problemset ID {problemset_id}: {e}", exc_info=True)
-
-    logger.info(f"Successfully fetched EAGER data for problemset ID: {problemset_id}, Title: {problemset_orm.title}")
-    return problemset_orm
+    # Delegate to the main get_one function now that it eager loads
+    return read_problemset(problemset_id=problemset_id, db=db)
 
 
 @router.post(
@@ -404,7 +442,7 @@ async def download_problemset_pdf(
     try:
         pdf_bytes = get_problemset_pdf(db, problemset_id)
         pdf_stream = io.BytesIO(pdf_bytes)
-        problemset_db = db.query(Problemset).filter(Problemset.id == problemset_id).first() # Renamed variable
+        problemset_db = db.query(Problemset).filter(Problemset.id == problemset_id).first() 
         safe_title = "problemset"
         if problemset_db and problemset_db.title:
             safe_title = "".join(c if c.isalnum() or c in ['-', '_'] else '_' for c in problemset_db.title.replace(' ', '_'))
