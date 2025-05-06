@@ -1,16 +1,16 @@
 # server/services/problemset_service.py
 import logging
-from typing import List, Optional 
+from typing import List, Optional
 
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func, update as sql_update
-from sqlalchemy.exc import SQLAlchemyError, IntegrityError 
+from sqlalchemy import func, update as sql_update # <-- Import update
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 # --- Import ORM Models ---
 try:
     from ..models.problemset import Problemset as DBProblemset
     from ..models.problem import Problem
-    from ..models.problemset_problems import ProblemsetProblems 
+    from ..models.problemset_problems import ProblemsetProblems
 except ImportError as e:
     logging.error(f"Failed to import SQLAlchemy models: {e}")
     raise
@@ -29,6 +29,7 @@ class ProblemsetServiceError(Exception):
     pass
 
 class ProblemsetService:
+    # ... (keep existing __init__ and create_problemset_from_ai_output) ...
     def __init__(self):
         logger.info("ProblemsetService initialized.")
 
@@ -37,12 +38,13 @@ class ProblemsetService:
             db: Session,
             ai_data: LectureProblemsOutput
         ) -> DBProblemset:
+        # (Implementation remains unchanged)
         logger.info(f"Service: Creating problemset '{ai_data.lecture_name}' (group: {ai_data.group_name}) and {len(ai_data.problems_latex)} problems in DB.")
         db_problemset = DBProblemset(
             title=ai_data.lecture_name,
             group_name=ai_data.group_name,
-            type="predavanje", 
-            part_of="skola matematike" 
+            type="predavanje",
+            part_of="skola matematike"
         )
         db.add(db_problemset)
 
@@ -88,10 +90,8 @@ class ProblemsetService:
         try:
             logger.debug("Service: Committing transaction...")
             db.commit()
-            db.refresh(db_problemset) # Refresh to get relationships if needed
-            # Eagerly load problems for the returned object if ProblemsetSchema expects them
             db.refresh(db_problemset)
-            if hasattr(DBProblemset, 'problems'): # Check if relationship exists
+            if hasattr(DBProblemset, 'problems'):
                  db.query(DBProblemset).options(joinedload(DBProblemset.problems)).filter(DBProblemset.id == db_problemset.id).first()
 
             logger.info(f"Service: Successfully created problemset (ID: {db_problemset.id}) with {len(problem_links)} links in DB.")
@@ -101,7 +101,8 @@ class ProblemsetService:
             logger.error(f"Service: Failed to commit transaction: {e}", exc_info=True)
             raise ProblemsetServiceError(f"Failed to save data to database during commit: {e}")
 
-
+# --- STANDALONE CRUD FUNCTIONS ---
+# (Keep get_all, get_one, create, update, delete as they are)
 def get_all(db: Session) -> List[DBProblemset]:
     logger.info("Service: Fetching all problemsets.")
     try:
@@ -151,12 +152,12 @@ def create(db: Session, problemset: ProblemsetCreate) -> DBProblemset:
 
 def update(db: Session, problemset_id: int, problemset_update: ProblemsetUpdate) -> Optional[DBProblemset]:
     logger.info(f"Service: Attempting to update problemset with id {problemset_id}.")
-    db_problemset = get_one(db, problemset_id) 
+    db_problemset = get_one(db, problemset_id)
     if not db_problemset:
         logger.warning(f"Service: Problemset with id {problemset_id} not found for update.")
-        return None 
+        return None
 
-    update_data = problemset_update.model_dump(exclude_unset=True) 
+    update_data = problemset_update.model_dump(exclude_unset=True)
 
     try:
         for key, value in update_data.items():
@@ -178,16 +179,16 @@ def update(db: Session, problemset_id: int, problemset_update: ProblemsetUpdate)
 
 def delete(db: Session, problemset_id: int) -> bool:
     logger.info(f"Service: Attempting to delete problemset with id {problemset_id}.")
-    db_problemset = get_one(db, problemset_id) 
+    db_problemset = get_one(db, problemset_id)
     if not db_problemset:
         logger.warning(f"Service: Problemset with id {problemset_id} not found for deletion.")
-        return False 
+        return False
 
     try:
         db.delete(db_problemset)
         db.commit()
         logger.info(f"Service: Successfully deleted problemset with id {problemset_id}.")
-        return True 
+        return True
     except SQLAlchemyError as e:
         db.rollback()
         logger.error(f"Service: Database error occurred during problemset deletion (id: {problemset_id}): {e}", exc_info=True)
@@ -198,13 +199,19 @@ def delete(db: Session, problemset_id: int) -> bool:
         raise ProblemsetServiceError(f"Unexpected error deleting problemset: {e}")
 
 
+# --- ENHANCED add_problem_to_problemset ---
 def add_problem_to_problemset(
     db: Session, problemset_id: int, problem_id: int, position: Optional[int] = None
 ) -> Optional[ProblemsetProblems]:
+    """
+    Adds an existing problem to a problemset. If position is specified, inserts
+    at that position and shifts subsequent problems. If position is None, appends.
+    """
     logger.info(
         f"Service: Attempting to add problem {problem_id} to problemset {problemset_id} at position {position}."
     )
 
+    # --- Initial Checks (Remain the same) ---
     db_problemset = db.query(DBProblemset).filter(DBProblemset.id == problemset_id).first()
     if not db_problemset:
         logger.warning(f"Service: Problemset with id {problemset_id} not found.")
@@ -224,79 +231,95 @@ def add_problem_to_problemset(
         logger.warning(
             f"Service: Problem {problem_id} is already associated with problemset {problemset_id}."
         )
-        return None 
+        return None
 
+    # --- Logic based on position ---
     actual_position: int
-    if position is None:
-        max_pos = (
-            db.query(func.max(ProblemsetProblems.position))
-            .filter(ProblemsetProblems.id_problemset == problemset_id)
-            .scalar()
-        )
-        actual_position = (max_pos + 1) if max_pos is not None else 1
-        logger.debug(f"Service: Appending problem. Calculated new position: {actual_position}.")
-    else:
-        actual_position = position
-        logger.debug(f"Service: Adding problem at specified position: {actual_position}.")
-        occupied_by_other = (
-            db.query(ProblemsetProblems)
-            .filter(
-                ProblemsetProblems.id_problemset == problemset_id,
-                ProblemsetProblems.position == actual_position,
-            )
-            .first()
-        )
-        if occupied_by_other:
-            logger.warning(
-                f"Service: Position {actual_position} in problemset {problemset_id} is already occupied by problem {occupied_by_other.id_problem}."
-            )
-            return None 
-
-    new_link = ProblemsetProblems(
-        id_problemset=problemset_id,
-        id_problem=problem_id,
-        position=actual_position,
-    )
+    new_link: ProblemsetProblems
 
     try:
-        db.add(new_link)
+        if position is None:
+            # Append logic
+            max_pos = (
+                db.query(func.max(ProblemsetProblems.position))
+                .filter(ProblemsetProblems.id_problemset == problemset_id)
+                .scalar()
+            )
+            actual_position = (max_pos + 1) if max_pos is not None else 1
+            logger.debug(f"Service: Appending problem. Calculated new position: {actual_position}.")
+
+            new_link = ProblemsetProblems(
+                id_problemset=problemset_id,
+                id_problem=problem_id,
+                position=actual_position,
+            )
+            db.add(new_link)
+            # No shifting needed for append
+
+        else:
+            # Insert at specific position logic
+            actual_position = position
+            if actual_position <= 0:
+                logger.warning(f"Service: Invalid position specified: {actual_position}. Must be positive.")
+                # Returning None as it's a logical validation failure
+                return None
+
+            logger.debug(f"Service: Inserting problem at specified position: {actual_position}.")
+
+            # --- ATOMIC SHIFT AND INSERT ---
+            # 1. Shift existing items (executed within the transaction)
+            shift_stmt = (
+                sql_update(ProblemsetProblems)
+                .where(
+                    ProblemsetProblems.id_problemset == problemset_id,
+                    ProblemsetProblems.position >= actual_position # Shift items at this position and later
+                )
+                .values(position=ProblemsetProblems.position + 1)
+                .execution_options(synchronize_session="fetch")
+            )
+            db.execute(shift_stmt)
+            logger.debug(f"Service: Executed position shift statement for position >= {actual_position}.")
+
+            # 2. Create the new link at the specified position
+            new_link = ProblemsetProblems(
+                id_problemset=problemset_id,
+                id_problem=problem_id,
+                position=actual_position,
+            )
+            db.add(new_link)
+            # Shifting and adding are now part of the same transaction block
+
+        # Commit changes (either append or insert+shift)
         db.commit()
-        db.refresh(new_link)
+        db.refresh(new_link) # Refresh the newly created link
+
         logger.info(
             f"Service: Successfully added problem {problem_id} to problemset {problemset_id} at position {actual_position}."
         )
         return new_link
-    except IntegrityError as e: 
+
+    except IntegrityError as e:
         db.rollback()
-        logger.error(
-            f"Service: Integrity error (likely duplicate PK) adding link problem {problem_id} to problemset {problemset_id}: {e}",
-            exc_info=True,
-        )
-        return None 
+        # This could happen if somehow the duplicate check failed (race condition?) or other constraint violation
+        logger.error(f"Service: Integrity error during add operation: {e}", exc_info=True)
+        return None # Logical failure (duplicate or other constraint)
     except SQLAlchemyError as e:
         db.rollback()
-        logger.error(
-            f"Service: Database error adding problem {problem_id} to problemset {problemset_id}: {e}",
-            exc_info=True,
-        )
+        logger.error(f"Service: Database error during add operation: {e}", exc_info=True)
         raise ProblemsetServiceError(f"Database error adding problem to problemset: {e}")
     except Exception as e:
         db.rollback()
-        logger.error(
-            f"Service: Unexpected error adding problem {problem_id} to problemset {problemset_id}: {e}",
-            exc_info=True,
-        )
+        logger.error(f"Service: Unexpected error during add operation: {e}", exc_info=True)
         raise ProblemsetServiceError(f"Unexpected error adding problem to problemset: {e}")
 
 
+# --- ENHANCED remove_problem_from_problemset ---
 def remove_problem_from_problemset(
     db: Session, problemset_id: int, problem_id: int
 ) -> bool:
     """
     Removes the link between a specific problem and problemset.
     Also shifts down the positions of subsequent problems in the same problemset.
-    Returns True on success, False if the link doesn't exist.
-    Raises ProblemsetServiceError for database or unexpected errors.
     """
     logger.info(
         f"Service: Attempting to remove problem {problem_id} from problemset {problemset_id} and shift positions."
@@ -320,10 +343,9 @@ def remove_problem_from_problemset(
         db.delete(link_to_delete)
         logger.debug(f"Service: Marked link for deletion (problem {problem_id}, problemset {problemset_id}).")
 
-        # --- Shift subsequent positions ---
+        # Shift subsequent positions if the deleted item had a position
         if deleted_position is not None:
             logger.debug(f"Service: Shifting positions greater than {deleted_position} for problemset {problemset_id}.")
-            # Use SQLAlchemy Core update statement for efficiency
             stmt = (
                 sql_update(ProblemsetProblems)
                 .where(
@@ -331,13 +353,12 @@ def remove_problem_from_problemset(
                     ProblemsetProblems.position > deleted_position
                 )
                 .values(position=ProblemsetProblems.position - 1)
-                .execution_options(synchronize_session="fetch") # Important for ORM consistency
+                .execution_options(synchronize_session="fetch")
             )
             db.execute(stmt)
             logger.debug("Service: Executed position shift statement.")
         else:
              logger.warning(f"Service: Deleted link did not have a position. Skipping position shift.")
-
 
         db.commit()
         logger.info(
@@ -360,16 +381,19 @@ def remove_problem_from_problemset(
         raise ProblemsetServiceError(f"Unexpected error removing problem from problemset: {e}")
 
 
+# --- Keep reorder_problems_in_problemset as is ---
 def reorder_problems_in_problemset(
     db: Session, problemset_id: int, problem_ids_ordered: List[int]
 ) -> Optional[List[ProblemsetProblems]]:
     """
     Reorders problems within a problemset based on a provided list of problem IDs.
+    Returns the list of updated link objects on success, None if problemset not found.
+    Raises ProblemsetServiceError for validation errors or DB errors.
     """
     logger.info(f"Service: Reordering problems for problemset {problemset_id}. New order: {problem_ids_ordered}")
 
     db_problemset = db.query(DBProblemset).options(
-        joinedload(DBProblemset.problems) # Eager load current links
+        joinedload(DBProblemset.problems)
     ).filter(DBProblemset.id == problemset_id).first()
 
     if not db_problemset:
@@ -378,58 +402,54 @@ def reorder_problems_in_problemset(
 
     current_links = db_problemset.problems
     current_problem_ids_in_set = {link.id_problem for link in current_links}
-    
-    # Validate input: all provided IDs must exist in the current set
-    if not set(problem_ids_ordered).issubset(current_problem_ids_in_set):
-        missing_ids = set(problem_ids_ordered) - current_problem_ids_in_set
+
+    ordered_ids_set = set(problem_ids_ordered)
+    if not ordered_ids_set.issubset(current_problem_ids_in_set):
+        missing_ids = ordered_ids_set - current_problem_ids_in_set
         logger.warning(f"Service: Reorder failed. Problem IDs {missing_ids} are not in problemset {problemset_id}.")
-        # Potentially raise an error or return a more specific None reason
         raise ProblemsetServiceError(f"Reorder failed. Problem IDs {missing_ids} not found in problemset {problemset_id}.")
 
-
-    # Validate input: all current problems must be in the provided order list
     if len(problem_ids_ordered) != len(current_problem_ids_in_set):
-        dropped_ids = current_problem_ids_in_set - set(problem_ids_ordered)
-        if dropped_ids: # if any problem was dropped
+        dropped_ids = current_problem_ids_in_set - ordered_ids_set
+        if dropped_ids:
             logger.warning(f"Service: Reorder failed. Problem IDs {dropped_ids} were present in the set but omitted from the new order.")
             raise ProblemsetServiceError(f"Reorder failed. Problems {dropped_ids} were omitted from the new order for problemset {problemset_id}.")
-        # This also implicitly covers if problem_ids_ordered has duplicates that reduce its unique count below current_problem_ids_in_set
-        # Or if it tries to add new problems (which it shouldn't)
         logger.warning(f"Service: Reorder failed. The number of problems in the new order ({len(problem_ids_ordered)}) "
                          f"does not match the current number of problems in the set ({len(current_problem_ids_in_set)}).")
         raise ProblemsetServiceError("Reorder failed. Mismatch in the number of problems provided versus currently in the set.")
 
-
-    # Check for duplicate problem IDs in the input list
-    if len(problem_ids_ordered) != len(set(problem_ids_ordered)):
+    if len(problem_ids_ordered) != len(ordered_ids_set):
         logger.warning(f"Service: Reorder failed. Duplicate problem IDs found in the provided order: {problem_ids_ordered}")
         raise ProblemsetServiceError("Reorder failed. Duplicate problem IDs provided in the new order.")
 
     updated_links = []
     try:
-        # Create a dictionary for quick lookup of links by problem_id
         link_map = {link.id_problem: link for link in current_links}
 
         for new_pos_idx, p_id in enumerate(problem_ids_ordered):
             link_to_update = link_map.get(p_id)
-            if link_to_update: # Should always be true due to prior validations
-                link_to_update.position = new_pos_idx + 1 # 1-based position
+            if link_to_update:
+                new_position = new_pos_idx + 1
+                if link_to_update.position != new_position:
+                    link_to_update.position = new_position
+                    logger.debug(f"Service: Setting problem {p_id} to position {new_position} in problemset {problemset_id}.")
                 updated_links.append(link_to_update)
             else:
-                # This case should ideally be caught by earlier validations
                 logger.error(f"Service: Reorder consistency error. Problem ID {p_id} not found in link_map for problemset {problemset_id}.")
-                db.rollback() # Rollback if something went wrong with the mapping
+                db.rollback()
                 raise ProblemsetServiceError(f"Internal error during reordering: problem ID {p_id} link not found.")
-        
+
         db.commit()
-        # Refresh each updated link to reflect DB state, especially if schemas need it
+
+        refreshed_links = []
         for link in updated_links:
             db.refresh(link)
-            if hasattr(link, 'problem'): # Eager load problem details if schema expects it
-                db.refresh(link.problem)
-        
-        logger.info(f"Service: Successfully reordered {len(updated_links)} problems in problemset {problemset_id}.")
-        return updated_links
+            if hasattr(link, 'problem'):
+                 db.refresh(link.problem)
+            refreshed_links.append(link)
+
+        logger.info(f"Service: Successfully reordered {len(refreshed_links)} problems in problemset {problemset_id}.")
+        return refreshed_links
     except SQLAlchemyError as e:
         db.rollback()
         logger.error(f"Service: Database error reordering problems for problemset {problemset_id}: {e}", exc_info=True)

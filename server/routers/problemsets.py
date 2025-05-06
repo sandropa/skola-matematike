@@ -317,10 +317,8 @@ def reorder_problems_in_problemset_endpoint(
         )
         
         if updated_links is None:
-            # Service layer should raise specific exceptions for validation errors,
-            # but if it returns None for 'not found' condition:
-            logger.warning(f"Router: Reorder failed - Problemset {problemset_id} not found.")
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Problemset {problemset_id} not found for reordering.")
+            logger.warning(f"Router: Reorder failed - Problemset {problemset_id} not found (service returned None).")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Problemset {problemset_id} not found.")
 
         logger.info(f"Router: Successfully reordered problems for problemset {problemset_id}.")
         

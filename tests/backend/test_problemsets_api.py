@@ -55,6 +55,23 @@ def link_problem_to_problemset(client, ps_id, p_id, position=None):
     assert response.status_code == status.HTTP_201_CREATED
     return response.json()
 
+
+def assert_problem_order(client, ps_id, expected_p_ids):
+    response = client.get(f"/problemsets/{ps_id}")
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert len(data["problems"]) == len(expected_p_ids)
+    # Sort fetched problems by position
+    sorted_problems = sorted(data["problems"], key=lambda p: p["position"])
+    # Extract IDs in order
+    actual_p_ids = [p["problem"]["id"] for p in sorted_problems]
+    # Check positions are contiguous and match expected IDs
+    for i, p_id in enumerate(expected_p_ids):
+        assert sorted_problems[i]["problem"]["id"] == p_id
+        assert sorted_problems[i]["position"] == i + 1
+    assert actual_p_ids == expected_p_ids
+
+
 # --- Existing CRUD Test Functions ---
 def test_create_problemset_success(client):
     response = client.post("/problemsets/", json=VALID_PROBLEMSET_DATA_1)
@@ -187,75 +204,144 @@ def test_read_all_problemsets_returns_list(client):
 
 # --- Tests for Adding/Removing Problems (Associations) ---
 
-def test_add_problem_to_problemset_success_append(client):
+def test_add_problem_to_problemset_success_append_empty(client):
+    # Append to an empty list
     ps = create_problemset(client)
     problem = create_problem(client, "Problem to append")
     ps_id = ps["id"]
     p_id = problem["id"]
 
-    response = client.post(f"/problemsets/{ps_id}/problems/{p_id}")
-    assert response.status_code == status.HTTP_201_CREATED
-    link_data = response.json()
-    assert link_data["problem"]["id"] == p_id
-    assert link_data["problem"]["latex_text"] == "Problem to append" # Check nested problem data
-    assert link_data["position"] == 1 
-
-    # Verify by getting the problemset
-    ps_response = client.get(f"/problemsets/{ps_id}")
-    assert ps_response.status_code == status.HTTP_200_OK
-    ps_data = ps_response.json()
-    assert len(ps_data["problems"]) == 1
-    assert ps_data["problems"][0]["problem"]["id"] == p_id
-    assert ps_data["problems"][0]["position"] == 1
-
-def test_add_problem_to_problemset_success_specific_position(client):
-    ps = create_problemset(client)
-    problem = create_problem(client, "Problem at pos 1")
-    ps_id = ps["id"]
-    p_id = problem["id"]
-
-    response = client.post(f"/problemsets/{ps_id}/problems/{p_id}?position=1")
+    response = client.post(f"/problemsets/{ps_id}/problems/{p_id}") # No position param
     assert response.status_code == status.HTTP_201_CREATED
     link_data = response.json()
     assert link_data["problem"]["id"] == p_id
     assert link_data["position"] == 1
+    assert_problem_order(client, ps_id, [p_id])
 
-    # Verify
-    ps_response = client.get(f"/problemsets/{ps_id}")
-    ps_data = ps_response.json()
-    assert len(ps_data["problems"]) == 1
-    assert ps_data["problems"][0]["problem"]["id"] == p_id
-    assert ps_data["problems"][0]["position"] == 1
-
-def test_add_problem_to_problemset_append_multiple(client):
+def test_add_problem_to_problemset_success_append_non_empty(client):
+    # Append to a list with one item
     ps = create_problemset(client)
     p1 = create_problem(client, "Problem 1")
     p2 = create_problem(client, "Problem 2")
     ps_id = ps["id"]
+    p1_id, p2_id = p1["id"], p2["id"]
 
-    # Add first problem (appends to pos 1)
-    response_p1 = client.post(f"/problemsets/{ps_id}/problems/{p1['id']}")
-    assert response_p1.status_code == status.HTTP_201_CREATED
-    assert response_p1.json()["position"] == 1
+    link_problem_to_problemset(client, ps_id, p1_id) # Adds p1 at pos 1
 
-    # Add second problem (appends to pos 2)
-    response_p2 = client.post(f"/problemsets/{ps_id}/problems/{p2['id']}")
-    assert response_p2.status_code == status.HTTP_201_CREATED
-    link_data_p2 = response_p2.json()
-    assert link_data_p2["position"] == 2
-    assert link_data_p2["problem"]["id"] == p2["id"]
+    response = client.post(f"/problemsets/{ps_id}/problems/{p2_id}") # Append p2
+    assert response.status_code == status.HTTP_201_CREATED
+    link_data = response.json()
+    assert link_data["problem"]["id"] == p2_id
+    assert link_data["position"] == 2 # Should append to pos 2
+    assert_problem_order(client, ps_id, [p1_id, p2_id])
 
-    # Verify
-    ps_response = client.get(f"/problemsets/{ps_id}")
-    ps_data = ps_response.json()
-    assert len(ps_data["problems"]) == 2
-    # Note: The order from GET might not be guaranteed unless explicitly sorted by the endpoint or service
-    # Sort the results before asserting if needed
-    sorted_problems = sorted(ps_data["problems"], key=lambda x: x["position"])
-    assert sorted_problems[0]["problem"]["id"] == p1["id"]
-    assert sorted_problems[0]["position"] == 1
-    assert sorted_problems[1]["problem"]["id"] == p2["id"]
-    assert sorted_problems[1]["position"] == 2
+
+def test_add_problem_to_problemset_insert_at_beginning(client):
+    # Arrange: ps with p1(pos1)
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p2 = create_problem(client, "Problem 2 - New First")
+    ps_id = ps["id"]
+    p1_id, p2_id = p1["id"], p2["id"]
+    link_problem_to_problemset(client, ps_id, p1_id) # p1 is at pos 1
+
+    # Act: Insert p2 at position 1
+    response = client.post(f"/problemsets/{ps_id}/problems/{p2_id}?position=1")
+    assert response.status_code == status.HTTP_201_CREATED
+    link_data = response.json()
+    assert link_data["problem"]["id"] == p2_id
+    assert link_data["position"] == 1
+
+    # Assert: p2 is pos 1, p1 is pos 2
+    assert_problem_order(client, ps_id, [p2_id, p1_id])
+
+def test_add_problem_to_problemset_insert_in_middle(client):
+    # Arrange: ps with p1(pos1), p3(pos2)
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p2 = create_problem(client, "Problem 2 - New Middle")
+    p3 = create_problem(client, "Problem 3")
+    ps_id = ps["id"]
+    p1_id, p2_id, p3_id = p1["id"], p2["id"], p3["id"]
+    link_problem_to_problemset(client, ps_id, p1_id) # p1 pos 1
+    link_problem_to_problemset(client, ps_id, p3_id) # p3 pos 2
+
+    # Act: Insert p2 at position 2
+    response = client.post(f"/problemsets/{ps_id}/problems/{p2_id}?position=2")
+    assert response.status_code == status.HTTP_201_CREATED
+    link_data = response.json()
+    assert link_data["problem"]["id"] == p2_id
+    assert link_data["position"] == 2
+
+    # Assert: p1 is pos 1, p2 is pos 2, p3 is pos 3
+    assert_problem_order(client, ps_id, [p1_id, p2_id, p3_id])
+
+def test_add_problem_to_problemset_insert_at_end_explicit_position(client):
+    # Arrange: ps with p1(pos1)
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p2 = create_problem(client, "Problem 2 - New End")
+    ps_id = ps["id"]
+    p1_id, p2_id = p1["id"], p2["id"]
+    link_problem_to_problemset(client, ps_id, p1_id) # p1 pos 1
+
+    # Act: Insert p2 at position 2 (which is the end)
+    response = client.post(f"/problemsets/{ps_id}/problems/{p2_id}?position=2")
+    assert response.status_code == status.HTTP_201_CREATED
+    link_data = response.json()
+    assert link_data["problem"]["id"] == p2_id
+    assert link_data["position"] == 2
+
+    # Assert: p1 is pos 1, p2 is pos 2
+    assert_problem_order(client, ps_id, [p1_id, p2_id])
+
+def test_add_problem_to_problemset_insert_at_position_greater_than_size(client):
+    # Arrange: ps with p1(pos1)
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p2 = create_problem(client, "Problem 2 - Far Position")
+    ps_id = ps["id"]
+    p1_id, p2_id = p1["id"], p2["id"]
+    link_problem_to_problemset(client, ps_id, p1_id) # p1 pos 1
+
+    # Act: Insert p2 at position 5 (greater than current size + 1)
+    # The current service logic should handle this by shifting from pos 5 onwards
+    # (which means no shift needed here) and inserting at pos 5.
+    # If strict validation is added later to prevent gaps, this test would change.
+    response = client.post(f"/problemsets/{ps_id}/problems/{p2_id}?position=5")
+    assert response.status_code == status.HTTP_201_CREATED
+    link_data = response.json()
+    assert link_data["problem"]["id"] == p2_id
+    assert link_data["position"] == 5
+
+    # Assert: p1 is pos 1, p2 is pos 5 (assuming no gap filling)
+    # We cannot use assert_problem_order directly here due to the gap
+    get_response = client.get(f"/problemsets/{ps_id}")
+    assert get_response.status_code == status.HTTP_200_OK
+    data = get_response.json()
+    assert len(data["problems"]) == 2
+    problems_map = {p["problem"]["id"]: p["position"] for p in data["problems"]}
+    assert problems_map[p1_id] == 1
+    assert problems_map[p2_id] == 5
+
+
+def test_add_problem_to_problemset_insert_at_invalid_position_zero(client):
+    ps = create_problemset(client)
+    problem = create_problem(client)
+    ps_id = ps["id"]
+    p_id = problem["id"]
+
+    response = client.post(f"/problemsets/{ps_id}/problems/{p_id}?position=0")
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY # FastAPI validation for ge=1
+
+def test_add_problem_to_problemset_insert_at_invalid_position_negative(client):
+    ps = create_problemset(client)
+    problem = create_problem(client)
+    ps_id = ps["id"]
+    p_id = problem["id"]
+
+    response = client.post(f"/problemsets/{ps_id}/problems/{p_id}?position=-1")
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY # FastAPI validation for ge=1
 
 def test_add_problem_to_problemset_non_existent_problemset(client):
     problem = create_problem(client)
@@ -277,15 +363,6 @@ def test_add_problem_to_problemset_already_linked(client):
     client.post(f"/problemsets/{ps_id}/problems/{p_id}") 
     response = client.post(f"/problemsets/{ps_id}/problems/{p_id}") 
     assert response.status_code == status.HTTP_409_CONFLICT
-
-def test_add_problem_to_problemset_position_conflict(client):
-    ps = create_problemset(client)
-    p1 = create_problem(client, "Problem 1")
-    p2 = create_problem(client, "Problem 2")
-    ps_id = ps["id"]
-    client.post(f"/problemsets/{ps_id}/problems/{p1['id']}?position=1")
-    response = client.post(f"/problemsets/{ps_id}/problems/{p2['id']}?position=1")
-    assert response.status_code == status.HTTP_400_BAD_REQUEST 
 
 def test_remove_problem_from_problemset_success_middle_element_shifts(client):
     # Arrange: Create ps, p1, p2, p3. Link p1(pos1), p2(pos2), p3(pos3)
