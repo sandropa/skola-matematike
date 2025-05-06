@@ -25,6 +25,7 @@ EXCLUDE_PATTERNS = [
     "create_llm_context.py",
     "frontend/package-lock.json",
     "frontend/package.json",
+    "experiments",
 
     # Common Dependency Directories (often gitignored anyway, but good explicit exclude)
     "node_modules/*",
