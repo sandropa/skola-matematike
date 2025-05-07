@@ -13,6 +13,7 @@ import mimetypes # Import mimetypes for guessing content type if needed (though 
 
 from .routers import problems
 from .routers import problemsets
+from .routers import user
 
 # Import the settings from your config file (assuming config.py loads .env)
 from .config import settings
@@ -55,6 +56,7 @@ app.add_middleware(
 
 app.include_router(problems.router)
 app.include_router(problemsets.router)
+app.include_router(user.router)
 
 # --- Pydantic Models ---
 class LatexInput(BaseModel):
