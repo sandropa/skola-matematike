@@ -2,16 +2,15 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import {
   Plus,
-  Trash2,
-  FolderOpen,
-  UploadCloud,
+  FileText,
+  FileDown,
   User,
   Settings,
   Search,
 } from "lucide-react";
 import "./PocetnaStranica.css";
 
-export default function OverleafDashboard() {
+export default function Pocetna() {
   const [projects, setProjects] = useState([]);
 
   useEffect(() => {
@@ -21,13 +20,13 @@ export default function OverleafDashboard() {
         setProjects(res.data);
       })
       .catch((err) => {
-        console.error("Error fetching lectures:", err);
+        console.error("Greška prilikom dohvatanja predavanja:", err);
       });
   }, []);
 
   return (
     <div>
-      {/* Navbar */}
+      {/* Navigacija */}
       <nav className="navbar">
         <div className="navbar-left">
           <img src="/logo.png" alt="Logo" className="navbar-logo large" />
@@ -42,12 +41,14 @@ export default function OverleafDashboard() {
         <div className="sidebar">
           <div>
             <button className="full-width">
-              <Plus className="icon" /> New Lecture
+              <Plus className="icon" /> Dodaj predavanje
             </button>
 
             <div className="sidebar-section">
-              <div className="section-title">Tags</div>
-              <div className="section-item">+ Add Tag</div>
+              <div className="section-title">Tagovi</div>
+              <div className="section-item">
+                <Plus className="icon small-icon" /> Dodaj tag
+              </div>
             </div>
           </div>
 
@@ -57,38 +58,42 @@ export default function OverleafDashboard() {
           </div>
         </div>
 
-        {/* Main Content */}
+        {/* Glavni sadržaj */}
         <div className="main-content">
           <div className="main-header">
             <div className="search-container">
               <Search className="search-icon" />
               <input
                 type="text"
-                placeholder="Search in all lectures..."
+                placeholder="Pretraga svih predavanja..."
                 className="search-input large"
               />
             </div>
           </div>
 
-          <div className="project-list">
-            {projects.map((project, index) => (
-              <div key={index} className="project-card">
-                <div>
-                  <div className="project-title">{project.title}</div>
-                  <div className="project-meta">
-                    Created at:{" "}
-                    {project.created_at
-                      ? new Date(project.created_at).toLocaleDateString()
-                      : "N/A"}
-                  </div>
-                </div>
-                <div className="project-actions">
-                  <FolderOpen className="action-icon" />
-                  <UploadCloud className="action-icon" />
-                  <Trash2 className="action-icon" />
-                </div>
-              </div>
-            ))}
+          {/* === TABELA PREDAVANJA === */}
+          <div className="table-wrapper">
+            <table className="table-predavanja">
+              <thead>
+                <tr>
+                  <th>Naslov</th>
+                  <th>Grupa</th>
+                  <th>Akcije</th>
+                </tr>
+              </thead>
+              <tbody>
+                {projects.map((project, index) => (
+                  <tr key={index}>
+                    <td>{project.title}</td>
+                    <td>{project.group_name || "Nepoznato"}</td>
+                    <td className="action-buttons">
+                      <FileText className="action-icon" title="Prikaži fajl" />
+                      <FileDown className="action-icon" title="Preuzmi PDF" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
