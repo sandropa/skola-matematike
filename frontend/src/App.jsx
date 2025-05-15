@@ -2,6 +2,7 @@ import React from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import LectureView from './components/LectureView';
 import Login from './pages/login/Login';
+import PocetnaStranica from './pages/pocetna/PocetnaStranica'
 import './App.css';
 
 function App() {
@@ -9,7 +10,7 @@ function App() {
 
   return (
     <div className="App">
-      {location.pathname !== "/login" && (
+      {/*location.pathname !== "/login" && (
         <>
           <nav>
             <Link to="/">Home</Link> | 
@@ -17,12 +18,13 @@ function App() {
           </nav>
           <h1>Skola Matematike - Lectures</h1>
         </>
-      )}
+      )*/}
 
       <Routes>
         <Route path="/lecture/:id" element={<LectureView />} />
         <Route path="/" element={<div>Welcome! Select a lecture.</div>} />
         <Route path="/login" element={<Login />} />
+        <Route path='/pocetna' element={<PocetnaStranica />}/>
         <Route path="*" element={<div>404: Page Not Found</div>} />
       </Routes>
     </div>
