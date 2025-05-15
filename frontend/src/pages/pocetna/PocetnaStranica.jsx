@@ -9,6 +9,8 @@ import {
   Search,
 } from "lucide-react";
 import "./PocetnaStranica.css";
+import { Link } from 'react-router-dom';
+import { User as UserIcon, Settings as SettingsIcon } from 'lucide-react';
 
 export default function Pocetna() {
   const [projects, setProjects] = useState([]);
@@ -26,10 +28,13 @@ export default function Pocetna() {
 
   return (
     <div>
-      {/* Navigacija */}
+      {}
       <nav className="navbar">
         <div className="navbar-left">
-          <img src="/logo.png" alt="Logo" className="navbar-logo large" />
+          <a href="pocetna">
+  <img src="logo.png" class="navbar-logo" alt="Logo" />
+</a>
+
         </div>
         <div className="navbar-right">
           <div className="navbar-item">Predavači</div>
@@ -37,7 +42,7 @@ export default function Pocetna() {
       </nav>
 
       <div className="container">
-        {/* Sidebar */}
+        {}
         <div className="sidebar">
           <div>
             <button className="full-width">
@@ -53,12 +58,14 @@ export default function Pocetna() {
           </div>
 
           <div className="sidebar-section bottom-icons">
-            <User className="action-icon large-icon" />
-            <Settings className="action-icon large-icon" />
+            <Link to="/profil">
+              <UserIcon className="action-icon large-icon" />
+            </Link>
+            <SettingsIcon className="action-icon large-icon" />
           </div>
         </div>
 
-        {/* Glavni sadržaj */}
+        {}
         <div className="main-content">
           <div className="main-header">
             <div className="search-container">
@@ -71,7 +78,7 @@ export default function Pocetna() {
             </div>
           </div>
 
-          {/* === TABELA PREDAVANJA === */}
+          {}
           <div className="table-wrapper">
             <table className="table-predavanja">
               <thead>

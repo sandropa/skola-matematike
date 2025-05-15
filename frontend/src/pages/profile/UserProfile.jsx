@@ -48,8 +48,10 @@ export default function ProfilKorisnika() {
   style={{ cursor: "pointer" }}
   onClick={() => navigate("/")}
 >
-  <img src="/logo.png" alt="Logo" className="header-logo" />
-  <span className="header-title">Moj Profil</span>
+  <a href="pocetna">
+  <img src="logo.png" class="navbar-logo" alt="Logo" />
+</a>
+  <span className="header-title">Moj profil</span>
 </div>
       </header>
 
@@ -61,7 +63,7 @@ export default function ProfilKorisnika() {
             <h2>{user.ime} {user.prezime}</h2>
             <p>{user.email}</p>
             <button className="edit-button" onClick={() => setIsEditing(!isEditing)}>
-              {isEditing ? "Odustani" : "Uredi Podatke"}
+              {isEditing ? "Odustani" : "Uredi podatke"}
             </button>
           </div>
 
@@ -69,7 +71,7 @@ export default function ProfilKorisnika() {
           <div className="profile-details">
             {isEditing && (
               <form onSubmit={handleUserSubmit} className="profile-form">
-                <h3>Uredi Osnovne Podatke</h3>
+                <h3>Uredi podatke</h3>
                 <input
                   type="text"
                   name="ime"
@@ -94,12 +96,12 @@ export default function ProfilKorisnika() {
                   placeholder="Email"
                   required
                 />
-                <button type="submit" className="save-button">Spasi Promjene</button>
+                <button type="submit" className="save-button">Sačuvaj promjene</button>
               </form>
             )}
 
             <form onSubmit={handlePasswordSubmit} className="profile-form">
-              <h3>Promjena Lozinke</h3>
+              <h3>Promjena lozinke</h3>
               <input
                 type="password"
                 name="old"
@@ -116,7 +118,7 @@ export default function ProfilKorisnika() {
                 placeholder="Nova lozinka"
                 required
               />
-              <button type="submit" className="save-button">Promijeni Lozinku</button>
+              <button type="submit" className="save-button">Promijeni lozinku</button>
             </form>
           </div>
         </div>
