@@ -1,25 +1,24 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import Editor from '@monaco-editor/react';
+import Editor from '@monaco-editor/react'; // No need to import Monaco separately if using @monaco-editor/react >= v4
 import {
     Typography,
     Box,
     Paper,
-    CircularProgress, // For loading state
-    Alert,         // For error messages
-    Divider        // For vertical divider between panels
+    CircularProgress,
+    Alert,
+    Divider
 } from '@mui/material';
-
 import {
-    Code,         // Icon for LaTeX editor
-    FileText,     // Icon for Preview
+    Code,
+    // FileText, // Not used in the modified preview panel header
 } from 'lucide-react';
 
-// IMPORTANT: Adjust this to your FastAPI backend URL
-const API_BASE_URL = "http://localhost:8000"; // e.g., http://localhost:8000 or your production URL
+const API_BASE_URL = "http://localhost:8000";
 
 export default function LatexEditor() {
     const [latexCode, setLatexCode] = useState(
         "% Welcome to the LaTeX Editor!\n" +
+        "% Select some text, right-click, and choose 'Replace with X (Streaming)'\n" +
         "\\documentclass[11pt,a4paper]{article}\n" +
         "\\usepackage[utf8]{inputenc}\n" +
         "\\usepackage[T1]{fontenc}\n" +
@@ -46,6 +45,7 @@ export default function LatexEditor() {
         "\\end{document}"
     );
     const editorRef = useRef(null);
+    const monacoRef = useRef(null); // To store the monaco instance for utilities like Range
 
     const [pdfUrl, setPdfUrl] = useState(null);
     const [isLoadingPdf, setIsLoadingPdf] = useState(false);
@@ -53,6 +53,80 @@ export default function LatexEditor() {
 
     const handleEditorDidMount = (editor, monaco) => {
         editorRef.current = editor;
+        monacoRef.current = monaco; // Store monaco instance
+
+        // --- Add custom action to context menu ---
+        editor.addAction({
+            id: 'replace-with-x-streaming',
+            label: 'Replace with X (Streaming)',
+            // keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_K], // Optional: Define keybindings
+            contextMenuGroupId: '1_modification', // Group in context menu (e.g., 'navigation', '1_modification')
+            contextMenuOrder: 1.5, // Order within the group (lower numbers appear first)
+            
+            // The function that will be executed when the action is triggered
+            run: async function (ed) {
+                const currentMonacoInstance = monacoRef.current;
+                if (!currentMonacoInstance) {
+                    console.error("Monaco instance not available for action.");
+                    return;
+                }
+
+                const selection = ed.getSelection();
+                if (!selection || selection.isEmpty()) {
+                    // You could show a small notification using a snackbar or alert if desired
+                    console.log("No text selected for replacement.");
+                    return;
+                }
+
+                const selectedText = ed.getModel().getValueInRange(selection);
+                const originalLength = selectedText.length;
+
+                if (originalLength === 0) return;
+
+                const initialSelectionRange = selection;
+
+                // 1. Clear the selected text immediately.
+                // This provides instant feedback that something is happening.
+                ed.executeEdits('replace-x-init', [{
+                    range: initialSelectionRange,
+                    text: '', // Replace selection with empty string
+                    forceMoveMarkers: true // Important for subsequent edits and cursor position
+                }]);
+
+                // After clearing, the selection is collapsed at the start of the original selection.
+                // This is our starting point for inserting new characters.
+                let currentPosition = ed.getSelection().getStartPosition();
+
+                // 2. "Stream" 'x' characters one by one
+                for (let i = 0; i < originalLength; i++) {
+                    // Create a range for the single character insertion at the current position
+                    const insertRange = new currentMonacoInstance.Range(
+                        currentPosition.lineNumber,
+                        currentPosition.column,
+                        currentPosition.lineNumber,
+                        currentPosition.column
+                    );
+
+                    // Execute the edit to insert 'x'
+                    ed.executeEdits('replace-x-stream-char', [{
+                        range: insertRange,
+                        text: 'x',
+                        forceMoveMarkers: true // Moves cursor/selection to end of insert
+                    }]);
+
+                    // Update currentPosition to the end of the newly inserted 'x'
+                    currentPosition = ed.getSelection().getEndPosition();
+
+                    // Optional: Reveal the current typing position if it's off-screen
+                    ed.revealPosition(currentPosition, currentMonacoInstance.editor.ScrollType.Smooth);
+
+                    // Simulate delay for the streaming effect
+                    // Adjust delay (in ms) for faster/slower typing
+                    await new Promise(resolve => setTimeout(resolve, 75)); 
+                }
+            }
+        });
+        // --- End of custom action ---
     };
 
     const handleEditorChange = (value, event) => {
@@ -118,7 +192,7 @@ export default function LatexEditor() {
         } finally {
             setIsLoadingPdf(false);
         }
-    }, [pdfUrl]);
+    }, [pdfUrl]); // pdfUrl dependency is for revoking old URL
 
     useEffect(() => {
         const handleKeyDown = (event) => {
@@ -132,31 +206,33 @@ export default function LatexEditor() {
     }, [compileAndDisplayPdf]);
 
     useEffect(() => {
+        // Initial compile on load if desired (optional)
+        // compileAndDisplayPdf(); 
+
+        // Cleanup PDF URL on component unmount
         return () => {
             if (pdfUrl) {
                 URL.revokeObjectURL(pdfUrl);
             }
         };
-    }, [pdfUrl]);
+    }, [pdfUrl]); // Only re-run if pdfUrl changes (for cleanup)
 
     return (
         <Box sx={{
             height: "100vh",
-            display: "flex", // Default flexDirection is "row"
+            display: "flex",
             overflow: "hidden",
             bgcolor: "#f5f5f5",
-            p: { xs: 1, sm: 2 }, // Padding around the entire layout
+            p: { xs: 1, sm: 2 },
         }}>
-            {/* --- Latex Panel (Left Side) --- */}
             <Paper
                 elevation={3}
                 sx={{
-                    flex: 1, // Takes 50% of available width (along with preview panel)
-                    // Or width: 'calc(50% - 8px)' if you want to account for divider/margins precisely
-                    height: '100%', // Take full available height within the parent Box
+                    flex: 1,
+                    height: '100%',
                     display: "flex",
                     flexDirection: "column",
-                    mr: { xs: 0.5, sm: 1 }, // Margin to the right, before divider/next panel
+                    mr: { xs: 0.5, sm: 1 },
                     borderRadius: 2,
                     overflow: "hidden",
                 }}
@@ -170,7 +246,7 @@ export default function LatexEditor() {
                 }}>
                     <Code size={18} style={{ marginRight: '8px' }} />
                     <Typography variant="subtitle2" sx={{ flexGrow: 1, fontWeight: 'medium' }}>
-                        LaTeX Source (Ctrl+S or Cmd+S to Compile)
+                        LaTeX Source (Ctrl+S to Compile)
                     </Typography>
                 </Box>
                 <Box sx={{ flexGrow: 1, overflow: "hidden", position: 'relative' }}>
@@ -180,7 +256,7 @@ export default function LatexEditor() {
                         value={latexCode}
                         onMount={handleEditorDidMount}
                         onChange={handleEditorChange}
-                        theme="vs"
+                        theme="vs" // You can change theme e.g., "vs-dark"
                         options={{
                             minimap: { enabled: false },
                             fontSize: 14,
@@ -191,6 +267,8 @@ export default function LatexEditor() {
                             renderLineHighlight: "gutter",
                             tabSize: 2,
                             insertSpaces: true,
+                            // Ensure context menu is enabled (it is by default)
+                            // contextmenu: true, 
                         }}
                     />
                 </Box>
@@ -198,30 +276,22 @@ export default function LatexEditor() {
 
             <Divider orientation="vertical" flexItem sx={{ mx: { xs: 0.5, sm: 1} }} />
 
-            {/* --- Preview Panel (Right Side) --- */}
             <Paper
                 elevation={3}
                 sx={{
-                    flex: 1, // Takes 50% of available width
-                    height: '100%', // Take full available height
+                    flex: 1,
+                    height: '100%',
                     display: "flex",
                     flexDirection: "column",
-                    ml: { xs: 0.5, sm: 1 }, // Margin to the left, after divider/previous panel
+                    ml: { xs: 0.5, sm: 1 },
                     borderRadius: 2,
                     overflow: "hidden",
                 }}
             >
-                {/* <Box sx={{
-                    p: 1,
-                    bgcolor: '#e9e9e9',
-                    display: "flex",
-                    alignItems: "center",
-                    borderBottom: '1px solid #ddd'
-                }}>
+                {/* Header for Preview Panel (optional) */}
+                {/* <Box sx={{ p: 1, bgcolor: '#e9e9e9', display: "flex", alignItems: "center", borderBottom: '1px solid #ddd' }}>
                     <FileText size={18} style={{ marginRight: '8px' }} />
-                    <Typography variant="subtitle2" sx={{ flexGrow: 1, fontWeight: 'medium' }}>
-                        Preview
-                    </Typography>
+                    <Typography variant="subtitle2" sx={{ flexGrow: 1, fontWeight: 'medium' }}>Preview</Typography>
                 </Box> */}
                 <Box
                     sx={{
@@ -231,7 +301,7 @@ export default function LatexEditor() {
                         alignItems: "center",
                         justifyContent: "center",
                         p: isLoadingPdf || pdfError || !pdfUrl ? 2 : 0,
-                        overflow: "hidden"
+                        overflow: "hidden" // Important for iframe to not cause double scrollbars
                     }}
                 >
                     {isLoadingPdf ? (
