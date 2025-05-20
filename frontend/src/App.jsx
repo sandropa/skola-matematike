@@ -8,6 +8,7 @@ import UserProfile from "./pages/profile/UserProfile";
 import PocetnaStranica from './pages/pocetna/PocetnaStranica'
 
 import './App.css';
+import LatexEditor from './pages/LatexEditor';
 
 function App() {
   const location = useLocation();
@@ -23,6 +24,7 @@ function App() {
       )*/}
 
       <Routes>
+        <Route path="/editor" element={<LatexEditor />} />
         <Route path="/lecture/:id" element={<LectureView />} />
         <Route path="/profil" element={<UserProfile />} />
         <Route path="/login" element={<Login />} />
