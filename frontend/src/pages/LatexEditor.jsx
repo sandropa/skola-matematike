@@ -67,7 +67,7 @@ export default function LatexEditor() {
                         theme="vs"
                         options={{
                             minimap: { enabled: false },
-                            fontSize: 16,
+                            fontSize: 15,
                             wordWrap: "on",
                             lineNumbers: "on",
                             scrollBeyondLastLine: false,
