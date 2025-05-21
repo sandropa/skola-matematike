@@ -51,9 +51,11 @@ export default function Pocetna() {
         {}
         <div className="sidebar">
           <div>
-            <button className="full-width">
-              <Plus className="icon" /> Dodaj predavanje
-            </button>
+            <Link to="/editor">
+              <button className="full-width">
+                <Plus className="icon" /> Dodaj predavanje
+              </button>
+            </Link>
 
             <div className="sidebar-section">
               <div className="section-title">Tagovi</div>
