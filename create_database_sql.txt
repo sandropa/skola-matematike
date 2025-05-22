@@ -32,3 +32,12 @@ ALTER TABLE problemsets ADD COLUMN group_name VARCHAR(30);
 ALTER TABLE problems
 ALTER COLUMN latex_versions TYPE JSONB
 USING to_jsonb(latex_versions);
+
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    name varchar(100),
+    surname varchar(100)
+);
