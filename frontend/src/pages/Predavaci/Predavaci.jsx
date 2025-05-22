@@ -9,6 +9,8 @@ function Predavaci() {
   const [newName, setNewName] = useState('');
   const [newSurname, setNewSurname] = useState('');
   const [newEmail, setNewEmail] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+
 
   useEffect(() => {
     fetchLecturers();
@@ -36,9 +38,18 @@ function Predavaci() {
       .catch(err => console.error('Greška pri dodavanju predavača:', err));
   };
 
+  const filteredLecturers = lecturers.filter((lecturer) =>
+    (`${lecturer.name} ${lecturer.surname}`).toLowerCase().includes(searchTerm.toLowerCase()) ||
+    lecturer.email.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+  
+
   return (
     <>
-   
+
+     
+
+
       <nav className="navbar">
         <div className="navbar-left">
           <a href="/pocetna">
@@ -62,7 +73,14 @@ function Predavaci() {
                   <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                 </svg>
               </div>
-              <input type="text" placeholder="Pretraga predavača" className="search-input" />
+              <input
+  type="text"
+  placeholder="Pretraga predavača"
+  className="search-input"
+  value={searchTerm}
+  onChange={(e) => setSearchTerm(e.target.value)}
+/>
+
             </div>
 
             <div className="filters-container">
@@ -73,7 +91,8 @@ function Predavaci() {
           </div>
 
           <div className="users-grid">
-            {lecturers.map((lecturer) => (
+            {filteredLecturers.map((lecturer) => (
+
               <div className="user-card" key={lecturer.id}>
                 <div className="user-avatar">
                   <Avatar sx={{ width: 80, height: 80 }}>
@@ -91,6 +110,9 @@ function Predavaci() {
                 </div>
               </div>
             ))}
+
+
+
           </div>
 
           <div className="scroll-to-top" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
