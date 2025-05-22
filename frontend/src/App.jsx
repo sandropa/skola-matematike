@@ -5,7 +5,8 @@ import Login from './pages/login/Login';
 
 import UserProfile from "./pages/profile/UserProfile";
 
-import PocetnaStranica from './pages/pocetna/PocetnaStranica'
+import PocetnaStranica from './pages/pocetna/PocetnaStranica';
+import Predavaci from './pages/predavaci/Predavaci';
 
 import './App.css';
 import LatexEditor from './pages/LatexEditor';
@@ -29,6 +30,7 @@ function App() {
         <Route path="/profil" element={<UserProfile />} />
         <Route path="/login" element={<Login />} />
         <Route path='/pocetna' element={<PocetnaStranica />}/>
+        <Route path='/predavaci' element={<Predavaci />}/>
         <Route path="*" element={<div>404: Page Not Found</div>} />
       </Routes>
     </div>
