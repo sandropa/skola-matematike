@@ -10,6 +10,10 @@ class Settings:
     # --- API Keys ---
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY")
 
+    # -- Gemini models --
+    GEMINI_FLASH_2_5="gemini-2.5-flash-preview-05-20"
+    GEMINI_PRO_2_5="gemini-2.5-pro-preview-05-06"
+
     # --- Database Connection ---
     POSTGRES_USER: str = os.getenv("POSTGRES_USER")
     POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD")

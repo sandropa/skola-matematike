@@ -18,12 +18,13 @@ except ImportError as e:
     logging.error(f"Failed to import Pydantic schema LectureProblemsOutput: {e}")
     raise
 
+from ..config import settings
+
 
 logger = logging.getLogger(__name__)
 
-# Define model names as constants
-GEMINI_FLASH_2_5 = "gemini-2.5-flash-preview-04-17"
-
+GEMINI_FLASH_2_5 = settings.GEMINI_FLASH_2_5
+GEMINI_PRO_2_5 = settings.GEMINI_PRO_2_5
 
 # Define custom service-level exceptions
 class GeminiServiceError(Exception):

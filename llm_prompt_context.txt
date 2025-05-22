@@ -1,0 +1,4261 @@
+--- START FILE: create_database_sql.txt ---
+
+CREATE TABLE problems (
+    id SERIAL PRIMARY KEY,
+    latex_text TEXT NOT NULL,
+    comments TEXT,
+    latex_versions TEXT[], -- PostgreSQL array for multiple versions
+    solution TEXT,
+    category VARCHAR(1) NOT NULL CHECK (category IN ('A', 'N', 'G', 'C'))
+);
+
+CREATE INDEX idx_problems_id ON problems(id);
+
+CREATE TABLE problemsets (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    type VARCHAR(100) NOT NULL,
+    part_of VARCHAR(100) NOT NULL
+);
+
+CREATE INDEX idx_problemsets_id ON problemsets(id);
+
+CREATE TABLE problemset_problems (
+    id_problem INTEGER NOT NULL REFERENCES problems(id) ON DELETE CASCADE,
+    id_problemset INTEGER NOT NULL REFERENCES problemsets(id) ON DELETE CASCADE,
+    PRIMARY KEY (id_problem, id_problemset)
+);
+
+
+ALTER TABLE problemset_problems ADD COLUMN position INTEGER;
+ALTER TABLE problemsets ADD COLUMN group_name VARCHAR(30);
+
+ALTER TABLE problems
+ALTER COLUMN latex_versions TYPE JSONB
+USING to_jsonb(latex_versions);
+
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: load_ljetni_kamp_data.py ---
+# load_kamp_data.py (at project root)
+
+import os
+import sys
+import json
+import logging
+from pathlib import Path
+from typing import List, Dict, Any
+
+# Add the 'server' directory to the Python path to allow imports
+# like 'from server.database import ...'
+project_root = Path(__file__).resolve().parent
+server_dir = project_root / 'server'
+sys.path.insert(0, str(project_root)) # Add project root first
+# sys.path.insert(0, str(server_dir)) # Alternatively add server dir
+
+# Now import components from the 'server' package
+try:
+    from sqlalchemy.orm import Session
+    from server.database import SessionLocal, engine, Base # Import session factory and Base
+    from server.models.problemset import Problemset # Import ORM model
+    from server.models.problem import Problem       # Import ORM model
+    from server.models.problemset_problems import ProblemsetProblems # Import Association Object ORM model
+    # Import Pydantic schemas for validating the loaded JSON data
+    from server.schemas.problemset import LectureProblemsOutput
+    from server.schemas.problemset import ProblemOutput # Ensure this inner schema is defined
+except ImportError as e:
+    print(f"Error importing project modules: {e}")
+    print("Ensure this script is run from the project root directory containing the 'server' folder,")
+    print("and that all __init__.py files are present.")
+    sys.exit(1)
+
+# --- Configuration ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+DATA_FILE_PATH = project_root / "experiments" / "data" / "ljetni_kamp_extracted_data_with_category.json"
+
+# Define mapping or default values for fields not present in AI output
+DEFAULT_PROBLEMSET_TYPE = "predavanje"
+DEFAULT_PROBLEMSET_CONTEXT = "ljetni kamp" # Assuming this is constant for this file
+
+# --- End Configuration ---
+
+
+def load_json_data(filepath: Path) -> List[Dict[str, Any]]:
+    """Loads the list of lecture data from the JSON file."""
+    if not filepath.is_file():
+        logging.error(f"Data file not found: {filepath}")
+        return []
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            logging.error(f"Expected a JSON list in {filepath}, but got {type(data)}.")
+            return []
+        logging.info(f"Successfully loaded {len(data)} entries from {filepath}")
+        return data
+    except json.JSONDecodeError as e:
+        logging.error(f"Failed to decode JSON from {filepath}: {e}")
+        return []
+    except Exception as e:
+        logging.error(f"An unexpected error occurred loading {filepath}: {e}", exc_info=True)
+        return []
+
+def process_and_load_lecture(db: Session, lecture_entry: Dict[str, Any]):
+    """Processes a single lecture entry from JSON and loads it into the DB."""
+    try:
+        # 1. Validate input dictionary using the Pydantic model for AI output
+        logging.debug(f"Validating data for lecture: {lecture_entry.get('lecture_name', 'N/A')}")
+        ai_data = LectureProblemsOutput(**lecture_entry)
+        logging.debug(f"Validation successful for: {ai_data.lecture_name}")
+
+        # 2. Check if Problemset might already exist (simple check by title/group)
+        # More robust checking might involve date, context etc. depending on requirements.
+        # For now, we'll assume we create new ones or duplicates are okay for this script.
+        # existing_ps = db.query(Problemset).filter_by(title=ai_data.lecture_name, group_name=ai_data.group_name).first()
+        # if existing_ps:
+        #     logging.warning(f"Problemset '{ai_data.lecture_name}' for group '{ai_data.group_name}' might already exist (ID: {existing_ps.id}). Skipping insertion.")
+        #     return # Or decide how to handle updates/duplicates
+
+        # 3. Create the Problemset ORM object
+        db_problemset = Problemset(
+            # Map fields from validated AI data (Pydantic object)
+            # Adapt these mappings based on your FINAL Problemset ORM model structure
+            title=ai_data.lecture_name,       # Using 'title' field in ORM model
+            group_name=ai_data.group_name,  # Using 'group_name' field in ORM model
+            type=DEFAULT_PROBLEMSET_TYPE,     # Set type
+            part_of=DEFAULT_PROBLEMSET_CONTEXT, # Set context
+            # Add other fields like date, school_year if they exist in the ORM model and you have data
+        )
+        db.add(db_problemset)
+        # Flush here to get db_problemset.id if needed before creating links
+        # but linking via object association often works without needing IDs explicitly first
+        logging.info(f"Prepared Problemset ORM: {ai_data.lecture_name}")
+
+        # 4. Create Problem ORM objects and Link objects
+        problem_links = []
+        processed_problems_in_set = {} # Track problems added *within this specific problemset*
+
+        for index, problem_data in enumerate(ai_data.problems_latex):
+            # problem_data is now a ProblemOutput Pydantic instance (or dict if validation skipped)
+            latex_text = problem_data.latex_text
+            category = problem_data.category
+
+            # Optional: Basic duplicate check *within this problemset*
+            if latex_text in processed_problems_in_set:
+                logging.warning(f"Duplicate LaTeX found within problemset '{ai_data.lecture_name}'. Skipping redundant entry.")
+                continue
+
+            # --- Problem Existence Check (Optional but recommended) ---
+            # Query DB to see if this exact problem LaTeX already exists
+            db_problem = db.query(Problem).filter(Problem.latex_text == latex_text).first()
+            if db_problem:
+                logging.debug(f"Found existing Problem (ID: {db_problem.id}) for LaTeX: '{latex_text[:30]}...'")
+                # Update category if existing one is different or null? Optional logic.
+                # if db_problem.category != category:
+                #     logging.info(f"Updating category for existing Problem ID {db_problem.id} to '{category}'")
+                #     db_problem.category = category # SQLAlchemy tracks change
+            else:
+                # Create new Problem ORM object if it doesn't exist
+                db_problem = Problem(
+                    latex_text=latex_text,
+                    category=category
+                    # Add other Problem fields if necessary (comments, solution, versions)
+                )
+                db.add(db_problem) # Add new problem to session
+                logging.debug(f"Prepared new Problem ORM object for LaTeX: '{latex_text[:30]}...'")
+                # Must flush to get the ID for the link object if problem is new
+                try:
+                    db.flush() # Assigns ID to the new db_problem
+                    if db_problem.id is None: raise ValueError("Flush did not assign ID")
+                    logging.debug(f"Flushed new problem, got ID: {db_problem.id}")
+                except Exception as flush_exc:
+                     logging.error(f"Error flushing new problem: {flush_exc}", exc_info=True)
+                     raise # Re-raise to trigger rollback
+
+            # --- Create the Link object ---
+            link = ProblemsetProblems(
+                # Let SQLAlchemy handle FKs via relationship assignment
+                problemset=db_problemset,
+                problem=db_problem,
+                position=index + 1
+            )
+            db.add(link) # Add link object to session
+            processed_problems_in_set[latex_text] = True # Mark as processed for this set
+            logging.debug(f"Prepared link object for Problem ID {db_problem.id} at position {index + 1}")
+
+        # 5. Commit changes for this lecture entry
+        # (Commit happens outside this function in the main loop)
+
+    except Exception as e:
+        logging.error(f"Failed processing entry for lecture '{lecture_entry.get('lecture_name', 'N/A')}': {e}", exc_info=True)
+        raise # Re-raise the exception to trigger rollback in the main loop
+
+
+# --- Main Execution ---
+if __name__ == "__main__":
+    logging.info(f"--- Starting Database Loading Script ---")
+    logging.info(f"Loading data from: {DATA_FILE_PATH}")
+
+    lecture_data_list = load_json_data(DATA_FILE_PATH)
+
+    if not lecture_data_list:
+        logging.warning("No lecture data loaded. Exiting.")
+        sys.exit(0)
+
+    # Get a database session
+    db: Session = SessionLocal()
+    processed_count = 0
+    error_count = 0
+
+    try:
+        for lecture_entry in lecture_data_list:
+            try:
+                process_and_load_lecture(db, lecture_entry)
+                # Commit after each successful lecture processing
+                db.commit()
+                processed_count += 1
+                logging.info(f"Successfully committed data for lecture: {lecture_entry.get('lecture_name', 'N/A')}")
+            except Exception as e:
+                # Error logged within process_and_load_lecture
+                logging.error(f"Rolling back transaction due to error processing lecture: {lecture_entry.get('lecture_name', 'N/A')}")
+                db.rollback() # Rollback only the failed lecture
+                error_count += 1
+
+        logging.info(f"--- Database Loading Finished ---")
+        logging.info(f"Successfully processed and committed: {processed_count} lectures.")
+        logging.info(f"Failed to process: {error_count} lectures.")
+
+    except Exception as e:
+        logging.error(f"An critical error occurred during the main loop: {e}", exc_info=True)
+        db.rollback() # Rollback any pending changes if the loop itself crashes
+    finally:
+        logging.info("Closing database session.")
+        db.close() # Ensure session is closed
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: pytest.ini ---
+[pytest]
+asyncio_default_fixture_loop_scope = function
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: README.md ---
+# skola-matematike
+Projekat iz Dinamickih web sistema. Ideja je da pojednostavi upravljanje predavanjima i zadacima na Skoli matematike.
+
+Potrebno je imati LaTeX distribution instaliran (da bismo mogli kompajlirati latex kod).
+
+https://www.tug.org/texlive/windows.html
+
+
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: test.py ---
+from fastapi import FastAPI, Depends
+from sqlalchemy.orm import Session
+
+from server.database import get_db
+from server.routers import problems, problemsets
+
+app = FastAPI()
+
+app.include_router(problems.router)
+app.include_router(problemsets.router)
+
+@app.get("/")
+def root():
+    return {"message": "Database test server running"}
+
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: .pytest_cache/CACHEDIR.TAG ---
+Signature: 8a477f597d28d172789f06886806bc55
+# This file is a cache directory tag created by pytest.
+# For information about cache directory tags, see:
+#	https://bford.info/cachedir/spec.html
+
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: .pytest_cache/README.md ---
+# pytest cache directory #
+
+This directory contains data from the pytest's cache plugin,
+which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
+
+**Do not** commit this to version control.
+
+See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
+
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: .pytest_cache/v/cache/lastfailed ---
+{
+  "tests/backend/test_problemsets_api.py::test_add_problem_to_problemset_position_conflict": true
+}
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: .pytest_cache/v/cache/nodeids ---
+[
+  "tests/backend/test_problems_api.py::test_create_problem_missing_field",
+  "tests/backend/test_problems_api.py::test_create_problem_success",
+  "tests/backend/test_problems_api.py::test_delete_problem_not_found",
+  "tests/backend/test_problems_api.py::test_delete_problem_success",
+  "tests/backend/test_problems_api.py::test_patch_problem_empty_payload",
+  "tests/backend/test_problems_api.py::test_patch_problem_invalid_category",
+  "tests/backend/test_problems_api.py::test_patch_problem_not_found",
+  "tests/backend/test_problems_api.py::test_patch_problem_success_latex_versions",
+  "tests/backend/test_problems_api.py::test_patch_problem_success_multiple_fields",
+  "tests/backend/test_problems_api.py::test_patch_problem_success_single_field",
+  "tests/backend/test_problems_api.py::test_read_all_problems_empty",
+  "tests/backend/test_problems_api.py::test_read_all_problems_with_data",
+  "tests/backend/test_problems_api.py::test_read_problem_not_found",
+  "tests/backend/test_problems_api.py::test_read_problem_success",
+  "tests/backend/test_problems_api.py::test_update_problem_not_found",
+  "tests/backend/test_problems_api.py::test_update_problem_success",
+  "tests/backend/test_problemsets_api.py::test_add_problem_to_problemset_already_linked",
+  "tests/backend/test_problemsets_api.py::test_add_problem_to_problemset_append_multiple",
+  "tests/backend/test_problemsets_api.py::test_add_problem_to_problemset_insert_at_beginning",
+  "tests/backend/test_problemsets_api.py::test_add_problem_to_problemset_insert_at_end_explicit_position",
+  "tests/backend/test_problemsets_api.py::test_add_problem_to_problemset_insert_at_invalid_position_negative",
+  "tests/backend/test_problemsets_api.py::test_add_problem_to_problemset_insert_at_invalid_position_zero",
+  "tests/backend/test_problemsets_api.py::test_add_problem_to_problemset_insert_at_position_greater_than_size",
+  "tests/backend/test_problemsets_api.py::test_add_problem_to_problemset_insert_in_middle",
+  "tests/backend/test_problemsets_api.py::test_add_problem_to_problemset_non_existent_problem",
+  "tests/backend/test_problemsets_api.py::test_add_problem_to_problemset_non_existent_problemset",
+  "tests/backend/test_problemsets_api.py::test_add_problem_to_problemset_position_conflict",
+  "tests/backend/test_problemsets_api.py::test_add_problem_to_problemset_success_append",
+  "tests/backend/test_problemsets_api.py::test_add_problem_to_problemset_success_append_empty",
+  "tests/backend/test_problemsets_api.py::test_add_problem_to_problemset_success_append_non_empty",
+  "tests/backend/test_problemsets_api.py::test_add_problem_to_problemset_success_specific_position",
+  "tests/backend/test_problemsets_api.py::test_create_problemset_missing_required_field",
+  "tests/backend/test_problemsets_api.py::test_create_problemset_optional_field_missing",
+  "tests/backend/test_problemsets_api.py::test_create_problemset_success",
+  "tests/backend/test_problemsets_api.py::test_delete_problemset_not_found",
+  "tests/backend/test_problemsets_api.py::test_delete_problemset_success",
+  "tests/backend/test_problemsets_api.py::test_get_lecture_data_invalid_id_format",
+  "tests/backend/test_problemsets_api.py::test_get_lecture_data_not_found_wrong_id",
+  "tests/backend/test_problemsets_api.py::test_get_lecture_data_not_found_wrong_type",
+  "tests/backend/test_problemsets_api.py::test_get_lecture_data_success",
+  "tests/backend/test_problemsets_api.py::test_read_all_problemsets_empty",
+  "tests/backend/test_problemsets_api.py::test_read_all_problemsets_returns_list",
+  "tests/backend/test_problemsets_api.py::test_read_all_problemsets_with_data",
+  "tests/backend/test_problemsets_api.py::test_read_problemset_not_found",
+  "tests/backend/test_problemsets_api.py::test_read_problemset_success",
+  "tests/backend/test_problemsets_api.py::test_remove_problem_from_problemset_non_existent_problem",
+  "tests/backend/test_problemsets_api.py::test_remove_problem_from_problemset_non_existent_problemset",
+  "tests/backend/test_problemsets_api.py::test_remove_problem_from_problemset_not_linked",
+  "tests/backend/test_problemsets_api.py::test_remove_problem_from_problemset_success",
+  "tests/backend/test_problemsets_api.py::test_remove_problem_from_problemset_success_first_element_shifts",
+  "tests/backend/test_problemsets_api.py::test_remove_problem_from_problemset_success_last_element_no_shift",
+  "tests/backend/test_problemsets_api.py::test_remove_problem_from_problemset_success_middle_element_shifts",
+  "tests/backend/test_problemsets_api.py::test_remove_problem_from_problemset_success_only_element",
+  "tests/backend/test_problemsets_api.py::test_reorder_problems_duplicate_ids_in_order",
+  "tests/backend/test_problemsets_api.py::test_reorder_problems_empty_problemset",
+  "tests/backend/test_problemsets_api.py::test_reorder_problems_id_not_in_set",
+  "tests/backend/test_problemsets_api.py::test_reorder_problems_mismatched_count_added",
+  "tests/backend/test_problemsets_api.py::test_reorder_problems_mismatched_count_omitted",
+  "tests/backend/test_problemsets_api.py::test_reorder_problems_no_change",
+  "tests/backend/test_problemsets_api.py::test_reorder_problems_problemset_not_found",
+  "tests/backend/test_problemsets_api.py::test_reorder_problems_single_problem",
+  "tests/backend/test_problemsets_api.py::test_reorder_problems_success",
+  "tests/backend/test_problemsets_api.py::test_update_problemset_invalid_data",
+  "tests/backend/test_problemsets_api.py::test_update_problemset_not_found",
+  "tests/backend/test_problemsets_api.py::test_update_problemset_success"
+]
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: .pytest_cache/v/cache/stepwise ---
+[]
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/config.py ---
+# server/config.py
+import os
+from dotenv import load_dotenv
+
+# Construct the path to the .env file in the parent directory (SKOLA-MATEMATIKE)
+dotenv_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+load_dotenv(dotenv_path=dotenv_path)
+
+class Settings:
+    # --- API Keys ---
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY")
+
+    # --- Database Connection ---
+    POSTGRES_USER: str = os.getenv("POSTGRES_USER")
+    POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD")
+    POSTGRES_SERVER: str = os.getenv("POSTGRES_SERVER", "localhost") # Default to localhost
+    POSTGRES_PORT: str = os.getenv("POSTGRES_PORT", "5432")       # Default to 5432
+    POSTGRES_DB: str = os.getenv("POSTGRES_DB")             # e.g., "math_school"
+
+    # --- Constructed Database URL ---
+    SQLALCHEMY_DATABASE_URL: str = None # Initialize as None
+
+    # Check if essential DB components are present before constructing URL
+    if all([POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB, POSTGRES_SERVER, POSTGRES_PORT]):
+        SQLALCHEMY_DATABASE_URL = (
+            f"postgresql+psycopg://{POSTGRES_USER}:{POSTGRES_PASSWORD}@"
+            f"{POSTGRES_SERVER}:{POSTGRES_PORT}/{POSTGRES_DB}"
+        )
+    else:
+        # Keep SQLALCHEMY_DATABASE_URL as None if essential parts are missing
+        print("Warning: One or more essential PostgreSQL environment variables "
+              "(POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB) are missing in .env. "
+              "Database connection will fail.")
+
+
+# Instantiate the settings
+settings = Settings()
+
+# --- Optional Checks (can be placed after instantiation) ---
+if not settings.GEMINI_API_KEY:
+    print("Warning: GEMINI_API_KEY not found in environment variables. Check your .env file.")
+
+if not settings.SQLALCHEMY_DATABASE_URL:
+     print("Critical Warning: SQLALCHEMY_DATABASE_URL could not be constructed. "
+           "Database operations will fail. Check .env and PostgreSQL variables.")
+
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/database.py ---
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
+from .config import settings
+
+engine = create_engine(
+    settings.SQLALCHEMY_DATABASE_URL,
+    pool_pre_ping=True
+)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/dependencies.py ---
+# server/dependencies.py
+
+import logging
+from google import genai
+from fastapi import HTTPException, status, Depends
+from sqlalchemy.orm import Session # Import Session type
+
+# Import settings (assuming server/config.py)
+try:
+    from .config import settings
+except ImportError as e:
+    logging.error(f"Failed to import settings from config.py: {e}")
+    raise # Critical error
+
+# Import service classes
+try:
+    from .services.gemini_service import GeminiService
+    from .services.problemset_service import ProblemsetService # Import the new service
+except ImportError as e:
+    logging.error(f"Failed to import service classes: {e}")
+    raise # Critical error
+
+# Import database dependency provider (assuming server/database.py)
+try:
+    from .database import get_db # Import the database session dependency
+except ImportError as e:
+    logging.error(f"Failed to import get_db from database.py: {e}")
+    raise # Critical error
+
+
+logger = logging.getLogger(__name__)
+
+# Module-level variables for caching service instances
+_cached_gemini_client = None
+_cached_gemini_service = None
+_cached_lecture_service = None
+
+# Dependency provider for the Gemini Client (API Key version)
+def get_gemini_client():
+    """
+    FastAPI dependency function to get a cached Gemini client instance (API Key focus).
+    """
+    global _cached_gemini_client
+
+    if _cached_gemini_client is None:
+        logger.info("Instantiating new Gemini client (first request).")
+        api_key = settings.GEMINI_API_KEY # Get API key from settings
+        if not api_key:
+             logger.error("API Key not found in settings.")
+             raise HTTPException(
+                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                 detail="AI service is not configured correctly (API Key missing)."
+             )
+        try:
+            _cached_gemini_client = genai.Client(api_key=api_key)
+            logger.debug("Gemini Client (API Key) instantiated.")
+            # Optional: Connectivity check
+            # try:
+            #      _cached_gemini_client.list_models()
+            #      logger.debug("Gemini client connectivity check successful.")
+            # except Exception as conn_e:
+            #       logger.warning(f"Gemini client connectivity check failed: {conn_e}", exc_info=True)
+
+        except Exception as e:
+            logger.error(f"Failed to instantiate Gemini client: {e}", exc_info=True)
+            raise HTTPException(
+                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                 detail="Failed to initialize connection to AI service."
+            )
+    else:
+         logger.debug("Using cached Gemini client.")
+
+    return _cached_gemini_client
+
+
+# Dependency provider for the GeminiService
+def get_gemini_service(
+    client: genai.Client = Depends(get_gemini_client) # Depends on the client dependency
+) -> GeminiService:
+    """
+    FastAPI dependency function to get a cached GeminiService instance.
+    """
+    global _cached_gemini_service
+
+    if _cached_gemini_service is None:
+        logger.info("Instantiating new GeminiService (first request).")
+        _cached_gemini_service = GeminiService(client=client) # Instantiate the service
+    else:
+        logger.debug("Using cached GeminiService.")
+
+    return _cached_gemini_service
+
+
+# Dependency provider for the LectureService
+def get_lecture_service() -> ProblemsetService:
+    """
+    FastAPI dependency function to get a cached LectureService instance.
+    DB session is passed per-method to allow service methods to be simpler.
+    """
+    global _cached_lecture_service
+
+    if _cached_lecture_service is None:
+        logger.info("Instantiating new LectureService (first request).")
+        _cached_lecture_service = ProblemsetService() # Instantiate the service
+    else:
+        logger.debug("Using cached LectureService.")
+
+    return _cached_lecture_service
+
+# The get_db dependency is imported from database.py
+# Its signature is def get_db(): yield SessionLocal() ...
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/main.py ---
+import os
+import logging
+# --- Use EXACT imports from your working sample ---
+from google import genai
+from google.genai import types
+# --- End of sample-specific imports ---
+
+from fastapi import FastAPI, HTTPException, status, File, UploadFile # Added File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel, Field
+import mimetypes # Import mimetypes for guessing content type if needed (though UploadFile provides it)
+
+from .routers import problems
+from .routers import problemsets
+from .routers import user
+
+# Import the settings from your config file (assuming config.py loads .env)
+from .config import settings
+
+# --- Basic Logging Setup ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# --- Check for API Key on Startup ---
+if not settings.GEMINI_API_KEY:
+    logger.warning("GEMINI_API_KEY not found in environment variables. API endpoints might fail.")
+else:
+    logger.info("GEMINI_API_KEY found in environment variables.")
+
+
+# --- FastAPI App ---
+app = FastAPI(
+    title="Skola Matematike API",
+    description="API using the specific Gemini Client structure provided.",
+    version="0.3.0" # Incremented version
+)
+
+# --- CORS Configuration ---
+# List of origins allowed to make requests (use '*' for testing, be specific in production)
+origins = [
+    "http://localhost:5173", # Default Vite dev server port
+    "http://127.0.0.1:5173",
+    "http://localhost",
+    # Add other origins if needed
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins, # Allows specific origins
+    allow_credentials=True, # Allows cookies (if needed)
+    allow_methods=["*"],    # Allows all methods (GET, POST, etc.)
+    allow_headers=["*"],    # Allows all headers
+)
+# --- End CORS Configuration ---
+
+app.include_router(problems.router)
+app.include_router(problemsets.router)
+app.include_router(user.router)
+
+# --- Pydantic Models ---
+class LatexInput(BaseModel):
+    latex_text: str = Field(..., min_length=1, examples=["Solve $x^2 + 5x + 6 = 0$."])
+
+class TranslationOutput(BaseModel):
+    original_text: str
+    translated_text: str
+    language: str = "Bosnian"
+
+# New Response Model for Image-to-LaTeX
+class LatexOutput(BaseModel):
+    filename: str
+    mime_type: str
+    latex_text: str
+
+
+# --- Helper Function (Optional but good practice) ---
+def get_gemini_client():
+    """Instantiates and returns the Gemini client."""
+    if not settings.GEMINI_API_KEY:
+        logger.error("Attempted to get Gemini client, but API key is missing.")
+        raise HTTPException(
+             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+             detail="API service is not configured correctly (API Key missing)."
+        )
+    try:
+        client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        logger.debug("Gemini Client instantiated.")
+        return client
+    except Exception as e:
+        logger.error(f"Failed to instantiate Gemini client: {e}", exc_info=True)
+        raise HTTPException(
+             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+             detail="Failed to initialize connection to API service."
+        )
+
+@app.get("/")
+async def root():
+    """ Basic API root endpoint. """
+    logger.info("Root endpoint '/' accessed.")
+    return {"message": "Welcome to the Skola Matematike API (Using Specific Client)"}
+
+@app.post(
+    "/translate/latex-to-bosnian",
+    response_model=TranslationOutput,
+    summary="Translate LaTeX Math Problem to Bosnian (Specific Client)",
+    tags=["Translation"]
+)
+async def translate_latex(payload: LatexInput):
+    """
+    Receives mathematical text (potentially including LaTeX) and translates
+    it to Bosnian using the specific Gemini Client structure provided,
+    attempting to preserve LaTeX formatting. Uses few-shot prompting.
+
+    - **latex_text**: The text containing the math problem (required).
+    """
+    logger.info(f"Received translation request for text: '{payload.latex_text[:50]}...'")
+    client = get_gemini_client() # Use helper to get client
+
+    try:
+        # Define Model and Configuration (EXACTLY as per your sample)
+        model_name = "gemini-2.5-flash-preview-04-17"
+        generation_config = types.GenerateContentConfig(
+            thinking_config = types.ThinkingConfig(thinking_budget=0),
+            response_mime_type="text/plain",
+        )
+        logger.debug(f"Using model: {model_name} and GenerateContentConfig for translation.")
+
+        # Construct Few-Shot Contents
+        contents = [
+            types.Content(role="user", parts=[types.Part.from_text(text="""Translate the following math problem to Bosnian. Keep Latex formatting: "Find the derivative of $f(x) = x^3 - 6x^2 + 5$. Calculate $f'(2)$." """),]),
+            types.Content(role="model", parts=[types.Part.from_text(text="""Nađite derivaciju funkcije $f(x) = x^3 - 6x^2 + 5$. Izračunajte $f'(2)$."""),]),
+            types.Content(role="user", parts=[types.Part.from_text(text=f"""Translate the following math problem to Bosnian. Keep Latex formatting: "{payload.latex_text}" """),]),
+        ]
+        logger.debug(f"Constructed contents for translation. Final user part starts with: '{payload.latex_text[:30]}...'")
+
+        # Call Gemini API (Attempting Non-Streaming Equivalent)
+        logger.info(f"Calling Gemini model '{model_name}' via Client API (attempting non-streaming)...")
+        try:
+            api_call_func = client.models.generate_content
+        except AttributeError:
+            logger.error("Failed to find 'client.models.generate_content'. Streaming collection needed but not implemented.")
+            raise HTTPException(status_code=501, detail="Server API method mismatch: Non-streaming call failed.")
+
+        response = await run_in_threadpool(
+            api_call_func, model=model_name, contents=contents, config=generation_config,
+        )
+        logger.info("Received translation response from Gemini.")
+
+        # Process Response
+        if hasattr(response, 'text') and response.text:
+            translated_text = response.text
+        elif hasattr(response, 'candidates') and response.candidates and response.candidates[0].content.parts:
+             translated_text = "".join(part.text for part in response.candidates[0].content.parts)
+             logger.debug("Accessed translation text via response.candidates[0].content.parts")
+        else:
+            logger.warning(f"Could not extract text from Gemini translation response. Response object: {response}")
+            raise HTTPException(status_code=500, detail="Translation failed: Could not parse response from translation service.")
+
+        logger.info(f"Successfully translated text to: '{translated_text[:50]}...'")
+        return TranslationOutput(original_text=payload.latex_text, translated_text=translated_text.strip())
+
+    except Exception as e:
+        logger.error(f"An unexpected error occurred during translation: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred during the translation process.")
+
+
+@app.post(
+    "/image-to-latex",
+    response_model=LatexOutput,
+    summary="Convert Math Problem Image to LaTeX (Specific Client)",
+    tags=["Conversion"] # New tag for organization
+)
+async def image_to_latex(file: UploadFile = File(..., description="Image file of the math problem")):
+    """
+    Receives an image of a math problem, uploads it to the Gemini API,
+    and requests the LaTeX representation of the problem. Uses the
+    specific client structure provided in the sample.
+
+    - **file**: The image file (e.g., PNG, JPEG).
+    """
+    logger.info(f"Received image file upload request: {file.filename} (type: {file.content_type})")
+    client = get_gemini_client() # Use helper to get client
+
+    # Basic MIME type validation
+    if not file.content_type or not file.content_type.startswith("image/"):
+        logger.warning(f"Invalid file type uploaded: {file.content_type}")
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"Unsupported file type: {file.content_type}. Please upload an image (e.g., PNG, JPEG)."
+        )
+
+    # Read image data
+    try:
+        image_bytes = await file.read()
+        if not image_bytes:
+             raise ValueError("Uploaded file is empty.")
+        logger.info(f"Read {len(image_bytes)} bytes from uploaded file '{file.filename}'.")
+    except Exception as e:
+        logger.error(f"Failed to read uploaded file '{file.filename}': {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Could not read uploaded file: {e}"
+        )
+    finally:
+        # Ensure the file is closed (important for temp files)
+        await file.close()
+
+
+    try:
+        # Define Model and Configuration (EXACTLY as per your image sample)
+        model_name = "gemini-2.5-flash-preview-04-17"
+        generation_config = types.GenerateContentConfig( # Class from your sample
+            # Note: thinking_config was NOT in the image sample, removing it here
+            response_mime_type="text/plain",
+        )
+        logger.debug(f"Using model: {model_name} and GenerateContentConfig for image-to-latex.")
+
+
+        # --- Construct Contents with Image Data and Text Prompt ---
+        # Adaption: Use inline_data instead of client.files.upload + from_uri
+        contents = [
+            types.Content(
+                role="user",
+                parts=[
+                    # Part 1: The image data
+                    types.Part(inline_data=types.Blob(
+                        mime_type=file.content_type,
+                        data=image_bytes
+                    )),
+                    # Part 2: The text prompt (from your sample)
+                    types.Part.from_text(text="""Give me the latex for the following math problem."""),
+                ]
+            )
+        ]
+        logger.debug("Constructed multi-part contents (image + text) for Gemini API.")
+
+
+        # --- Call Gemini API (Attempting Non-Streaming Equivalent) ---
+        logger.info(f"Calling Gemini model '{model_name}' via Client API (attempting non-streaming)...")
+        try:
+            api_call_func = client.models.generate_content
+        except AttributeError:
+            logger.error("Failed to find 'client.models.generate_content'. Streaming collection needed but not implemented.")
+            raise HTTPException(status_code=501, detail="Server API method mismatch: Non-streaming call failed.")
+
+        response = await run_in_threadpool(
+            api_call_func, model=model_name, contents=contents, config=generation_config,
+        )
+        logger.info("Received image-to-latex response from Gemini.")
+
+
+        # --- Process Response ---
+        # (Same logic as translation endpoint, assuming similar response structure)
+        if hasattr(response, 'text') and response.text:
+            latex_text = response.text
+        elif hasattr(response, 'candidates') and response.candidates and response.candidates[0].content.parts:
+             latex_text = "".join(part.text for part in response.candidates[0].content.parts)
+             logger.debug("Accessed latex text via response.candidates[0].content.parts")
+        else:
+            logger.warning(f"Could not extract text from Gemini image-to-latex response. Response object: {response}")
+            raise HTTPException(status_code=500, detail="Image-to-LaTeX failed: Could not parse response from service.")
+
+        logger.info(f"Successfully generated LaTeX: '{latex_text[:50]}...'")
+        return LatexOutput(
+            filename=file.filename,
+            mime_type=file.content_type,
+            latex_text=latex_text.strip()
+            )
+
+    except Exception as e:
+        logger.error(f"An unexpected error occurred during image-to-latex conversion: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred during the image conversion process.")
+
+    """
+    Receives mathematical text (potentially including LaTeX) and translates
+    it to Bosnian using the specific Gemini Client structure provided,
+    attempting to preserve LaTeX formatting. Uses few-shot prompting.
+
+    - **latex_text**: The text containing the math problem (required).
+    """
+    logger.info(f"Received translation request for text: '{payload.latex_text[:50]}...'")
+
+    if not settings.GEMINI_API_KEY:
+         logger.error("Translation attempt failed: Gemini API key not configured.")
+         raise HTTPException(
+             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+             detail="Translation service is not configured correctly (API Key missing)."
+         )
+
+    try:
+        # --- Instantiate Client (as per your sample) ---
+        client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        logger.debug("Gemini Client instantiated.")
+
+        # --- Define Model and Configuration (EXACTLY as per your sample) ---
+        model_name = "gemini-2.5-flash-preview-04-17" # Model from your sample
+        generation_config = types.GenerateContentConfig( # Class from your sample
+            thinking_config = types.ThinkingConfig( # Class from your sample
+                thinking_budget=0,
+            ),
+            response_mime_type="text/plain",
+        )
+        logger.debug(f"Using model: {model_name} and GenerateContentConfig.")
+
+        # --- Construct Few-Shot Contents (using sample's types) ---
+        # Using the same few-shot structure as before
+        contents = [
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_text(text="""Translate the following math problem to Bosnian. Keep Latex formatting: "Find the derivative of $f(x) = x^3 - 6x^2 + 5$. Calculate $f'(2)$." """),
+                ],
+            ),
+            types.Content(
+                role="model",
+                parts=[
+                    types.Part.from_text(text="""Nađite derivaciju funkcije $f(x) = x^3 - 6x^2 + 5$. Izračunajte $f'(2)$."""),
+                ],
+            ),
+            # Add more examples here if needed
+            types.Content(
+                role="user",
+                parts=[
+                    # Insert the actual user input
+                    types.Part.from_text(text=f"""Translate the following math problem to Bosnian. Keep Latex formatting: "{payload.latex_text}" """),
+                ],
+            ),
+        ]
+        logger.debug(f"Constructed contents for Gemini API. Final user part starts with: '{payload.latex_text[:30]}...'")
+
+        # --- Call Gemini API (Attempting Non-Streaming Equivalent) ---
+        # Based on your sample's client.models.generate_content_stream,
+        # we ASSUME client.models.generate_content exists for non-streaming.
+        # If this fails with AttributeError, we'll need to adjust.
+        logger.info(f"Calling Gemini model '{model_name}' via Client API (attempting non-streaming)...")
+        try:
+            # Assume the non-streaming method exists here
+            api_call_func = client.models.generate_content
+        except AttributeError:
+            logger.error("Failed to find 'client.models.generate_content'. Streaming collection needed but not implemented.")
+            raise HTTPException(status_code=501, detail="Server API method mismatch: Non-streaming call failed.")
+
+        response = await run_in_threadpool(
+            api_call_func,                  # The function to run
+            model=model_name,               # Arguments for the function
+            contents=contents,
+            # IMPORTANT: Use 'config=' parameter name, as seen in your sample's stream call
+            config=generation_config,
+        )
+        logger.info("Received response from Gemini.")
+        # Note: Response structure might differ between stream/non-stream and Client/GenerativeModel APIs
+        logger.debug(f"Gemini raw response object type: {type(response)}")
+        # Attempt to log common feedback attributes if they exist
+        if hasattr(response, 'prompt_feedback'):
+             logger.debug(f"Gemini response prompt feedback: {response.prompt_feedback}")
+
+        # --- Process Response ---
+        # Accessing response text might need adjustment depending on the actual object returned
+        if hasattr(response, 'text') and response.text:
+            translated_text = response.text
+        elif hasattr(response, 'candidates') and response.candidates and response.candidates[0].content.parts:
+             # Fallback attempt similar to GenerativeModel API response structure
+             translated_text = "".join(part.text for part in response.candidates[0].content.parts)
+             logger.debug("Accessed text via response.candidates[0].content.parts")
+        else:
+            # If text cannot be extracted
+            logger.warning(f"Could not extract text from Gemini response. Response object: {response}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Translation failed: Could not parse response from translation service."
+            )
+
+        logger.info(f"Successfully translated text to: '{translated_text[:50]}...'")
+        return TranslationOutput(
+            original_text=payload.latex_text,
+            translated_text=translated_text.strip()
+        )
+
+    # --- Error Handling ---
+    # Catch specific errors from the 'genai' library if known
+    # except genai.APIError as api_error: # Example - replace with actual error types if known
+    #     logger.error(f"Gemini API error: {api_error}", exc_info=True)
+    #     raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Translation service API error.")
+    except Exception as e:
+        # Log the full error details for debugging
+        logger.error(f"An unexpected error occurred during translation: {e}", exc_info=True)
+        # Return a generic error to the client
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An internal error occurred during the translation process."
+        )
+
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/__init__.py ---
+
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/models/problem.py ---
+# server/models/problem.py
+
+# --- Make sure ARRAY and Text are imported from sqlalchemy ---
+from sqlalchemy import Column, Integer, String, Text, JSON
+# --- (Keep other imports like relationship, Base, enum) ---
+from sqlalchemy.orm import relationship
+from ..database import Base
+import enum
+
+class CategoryEnum(enum.Enum):
+    A = "A"  # Algebra
+    N = "N"  # Number theory
+    G = "G"  # Geometry
+    C = "C"  # Combinatorics
+
+class Problem(Base):
+    __tablename__ = "problems"
+
+    id = Column(Integer, primary_key=True, index=True)
+    latex_text = Column(Text, nullable=False)
+    comments = Column(Text, nullable=True)
+    # --- Ensure this definition is exactly ARRAY(Text) ---
+    latex_versions = Column(JSON, nullable=True)
+    # -------------------------------------------------------
+    solution = Column(Text, nullable=True)
+    category = Column(String, nullable=False) # Keep as String, potentially add Enum here later if needed
+
+    problemsets = relationship(
+        "ProblemsetProblems",
+        back_populates="problem"
+    )
+
+    def __repr__(self):
+         return f"<Problem(id={self.id}, latex='{self.latex_text[:30]}...')>"
+    
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/models/problemset.py ---
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Enum
+from sqlalchemy.orm import relationship
+from ..database import Base
+import enum
+
+class ProgramTypeEnum(enum.Enum):
+    SKOLA_MATEMATIKE = "skola matematike"
+    LJETNI_KAMP = "ljetni kamp"
+    ZIMSKI_KAMP = "zimski kamp"
+
+class Problemset(Base):
+    __tablename__ = "problemsets"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    type = Column(String, nullable=False)
+    part_of = Column(String, nullable=False)
+
+    group_name = Column(String)
+    
+    # Relationships
+    problems = relationship("ProblemsetProblems", back_populates="problemset")
+
+    def __repr__(self):
+         return f"<Problemset(id={self.id}, title='{self.title}', type='{self.type}', part_of='{self.part_of}')>"
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/models/problemset_problems.py ---
+from sqlalchemy import Column, Integer, ForeignKey
+from sqlalchemy.orm import relationship
+from ..database import Base
+
+class ProblemsetProblems(Base):
+    __tablename__ = "problemset_problems"
+    
+    id_problem = Column(Integer, ForeignKey("problems.id"), primary_key=True)
+    id_problemset = Column(Integer, ForeignKey("problemsets.id"), primary_key=True)
+
+    position = Column(Integer)
+    
+    # Relationships
+    problem = relationship("Problem", back_populates="problemsets")
+    problemset = relationship("Problemset", back_populates="problems") 
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/models/user.py ---
+# server/models/user.py
+
+from sqlalchemy import Column, Integer, String
+from sqlalchemy.orm import relationship
+from ..database import Base
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, nullable=False, index=True)
+    password = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    surname = Column(String, nullable=False)
+
+
+    def __repr__(self):
+        return f"<User(id={self.id}, email='{self.email}')>"
+
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/models/__init__.py ---
+from ..database import Base
+from .problem import Problem, CategoryEnum
+from .problemset import Problemset, ProgramTypeEnum
+from .problemset_problems import ProblemsetProblems
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/routers/problems.py ---
+# server/routers/problems.py
+
+import logging
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
+from typing import List
+
+from ..database import get_db
+# Import the new schemas
+from ..schemas.problem import ProblemSchema, ProblemCreate, ProblemUpdate, ProblemPartialUpdate
+from ..services import problem_service
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(
+    prefix="/problems",
+    tags=["Problems"],
+    responses={404: {"description": "Problem not found"}}
+)
+
+# --- GET / remains the same ---
+@router.get("/", response_model=List[ProblemSchema], summary="Get All Problems")
+def read_all_problems(db: Session = Depends(get_db)):
+    logger.info("Router: Request received for GET /problems")
+    problems = problem_service.get_all(db)
+    logger.info(f"Router: Returning {len(problems)} problems.")
+    return problems
+
+# --- GET /{id} remains the same ---
+@router.get("/{problem_id}", response_model=ProblemSchema, summary="Get Problem by ID")
+def read_problem(problem_id: int, db: Session = Depends(get_db)):
+    logger.info(f"Router: Request received for GET /problems/{problem_id}")
+    problem = problem_service.get_one(db, problem_id)
+    if problem is None:
+        logger.warning(f"Router: Problem with id {problem_id} not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found")
+    logger.info(f"Router: Returning problem with id {problem_id}.")
+    return problem
+
+# --- POST / uses ProblemCreate for input ---
+@router.post("/", response_model=ProblemSchema, status_code=status.HTTP_201_CREATED, summary="Create New Problem")
+def create_new_problem(problem: ProblemCreate, db: Session = Depends(get_db)): # <-- Use ProblemCreate
+    """Create a new problem entry in the database."""
+    logger.info("Router: Request received for POST /problems")
+    try:
+        # Pass the ProblemCreate schema to the service
+        created_problem = problem_service.create(db=db, problem=problem)
+        logger.info(f"Router: Problem created successfully with id {created_problem.id}")
+        return created_problem
+    except SQLAlchemyError as e:
+         logger.error(f"Router: Database error during problem creation: {e}", exc_info=True)
+         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Database error occurred while creating the problem.")
+    except Exception as e:
+        logger.error(f"Router: Unexpected error during problem creation: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
+
+# --- PUT /{id} uses ProblemUpdate for input ---
+@router.put("/{problem_id}", response_model=ProblemSchema, summary="Update Existing Problem")
+def update_existing_problem(problem_id: int, problem_update: ProblemUpdate, db: Session = Depends(get_db)): # <-- Use ProblemUpdate
+    """Update an existing problem identified by its ID."""
+    logger.info(f"Router: Request received for PUT /problems/{problem_id}")
+    try:
+        # Pass the ProblemUpdate schema to the service
+        updated_problem = problem_service.update(db=db, problem_id=problem_id, problem_update=problem_update)
+        if updated_problem is None:
+            logger.warning(f"Router: Problem with id {problem_id} not found for update.")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found")
+        logger.info(f"Router: Problem {problem_id} updated successfully.")
+        return updated_problem
+    except SQLAlchemyError as e:
+         logger.error(f"Router: Database error during problem update (id: {problem_id}): {e}", exc_info=True)
+         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Database error occurred while updating the problem.")
+    # --- Specific handling for HTTPException ---
+    except HTTPException as http_exc:
+        raise http_exc # Re-raise known HTTP exceptions (like 404)
+    # --- Catch other exceptions last ---
+    except Exception as e:
+        logger.error(f"Router: Unexpected error during problem update (id: {problem_id}): {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
+
+@router.patch("/{problem_id}", response_model=ProblemSchema, summary="Partially Update Existing Problem")
+def patch_existing_problem(
+    problem_id: int, 
+    problem_update: ProblemPartialUpdate, 
+    db: Session = Depends(get_db)):
+    '''Partially update an existing problem identified by its ID.'''
+    logger.info(f"Router: Request received for PATCH /problems/{problem_id}")
+    if not problem_update.model_dump(exclude_unset=True):
+        logger.warning(f"Router: PATCH request for problem {problem_id} received with no update data.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No update data is provided in PATCH request.")
+
+    try:
+        updated_problem = problem_service.patch(db=db, problem_id=problem_id, problem_update=problem_update)
+        if updated_problem is None:
+            logger.warning(f"Router: Problem with id {problem_id} not found for PATCH update.")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found")
+        logger.info(f"Router: Problem {problem_id} updated seccessfully (PATCH).")
+        return updated_problem
+    except SQLAlchemyError as e:
+        logger.error(f"Router: Database error during problem update (PATCH) (id: {problem_id}): {e}", exc_info=True)
+        raise
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        logger.error(f"Router: Unexpected error during problem update (PATCH) (id: {problem_id}): {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occured.")
+
+
+# --- DELETE /{id} - Fix exception handling ---
+@router.delete("/{problem_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete Problem")
+def delete_existing_problem(problem_id: int, db: Session = Depends(get_db)):
+    """Delete a problem identified by its ID."""
+    logger.info(f"Router: Request received for DELETE /problems/{problem_id}")
+    try:
+        success = problem_service.delete(db=db, problem_id=problem_id)
+        if not success:
+            logger.warning(f"Router: Problem with id {problem_id} not found for deletion.")
+            # Raising 404 here is correct
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found")
+        logger.info(f"Router: Problem {problem_id} deleted successfully.")
+        return None
+    except SQLAlchemyError as e:
+        logger.error(f"Router: Database error during problem deletion (id: {problem_id}): {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Database error occurred while deleting the problem.")
+    # --- Specific handling for HTTPException ---
+    except HTTPException as http_exc:
+        raise http_exc # Re-raise known HTTP exceptions (like the 404 above)
+    # --- Catch other exceptions last ---
+    except Exception as e:
+        logger.error(f"Router: Unexpected error during problem deletion (id: {problem_id}): {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/routers/problemsets.py ---
+# server/routers/problemsets.py
+
+import logging
+import io
+
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Query 
+from fastapi.responses import StreamingResponse, Response
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.exc import SQLAlchemyError 
+
+from typing import List, Optional 
+
+# Import Request Body model for reordering
+from pydantic import BaseModel, Field
+
+# Import service classes and their potential exceptions
+try:
+    from ..services.gemini_service import GeminiService, GeminiServiceError, GeminiJSONError, GeminiResponseValidationError
+    from ..services.problemset_service import ProblemsetService, ProblemsetServiceError
+    from ..services import problemset_service 
+    from ..services import problem_service 
+    from ..services.pdf_service import get_problemset_pdf, PDFGenerationError, ProblemsetNotFound
+    from ..services import pdf_service # todo mozda ukloniti
+except ImportError as e:
+     logging.error(f"Failed to import service classes/functions: {e}")
+     raise
+
+# Import dependency providers
+try:
+    from ..dependencies import get_gemini_service, get_lecture_service
+    from ..database import get_db
+except ImportError as e:
+    logging.error(f"Failed to import dependencies: {e}")
+    raise
+
+# Import Pydantic schemas
+try:
+    from ..schemas.problemset import LectureProblemsOutput
+    from ..schemas.problemset import ProblemsetSchema, ProblemsetCreate, ProblemsetUpdate
+    from ..schemas.problemset_problems import ProblemsetProblemsSchema
+except ImportError as e:
+    logging.error(f"Failed to import Pydantic schemas: {e}")
+    raise
+
+# Import SQLAlchemy ORM models
+try:
+    from ..models.problemset import Problemset
+    from ..models.problem import Problem 
+    from ..models.problemset_problems import ProblemsetProblems 
+except ImportError as e:
+    logging.error(f"Failed to import SQLAlchemy models: {e}")
+    raise
+
+logger = logging.getLogger(__name__)
+
+# --- Request Body Model for Reordering ---
+class ReorderProblemsPayload(BaseModel):
+    problem_ids_ordered: List[int] = Field(..., examples=[[3, 1, 2]])
+
+router = APIRouter(
+    prefix="/problemsets",
+    tags=["Problemsets"], 
+    responses={404: {"description": "Problemset not found"}} 
+)
+
+# --- Standard CRUD Endpoints ---
+
+@router.post(
+    "/",
+    response_model=ProblemsetSchema,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create New Problemset"
+)
+def create_new_problemset(
+    problemset: ProblemsetCreate,
+    db: Session = Depends(get_db)
+):
+    logger.info(f"Router: Request received for POST /problemsets (Title: {problemset.title})")
+    try:
+        created_problemset = problemset_service.create(db=db, problemset=problemset)
+        logger.info(f"Router: Problemset created successfully with id {created_problemset.id}")
+        # Eagerly load relationships for the response model
+        db.refresh(created_problemset)
+        if hasattr(Problemset, 'problems'):
+             db.query(Problemset).options(joinedload(Problemset.problems)).filter(Problemset.id == created_problemset.id).first()
+        return created_problemset
+    except (SQLAlchemyError, ProblemsetServiceError) as e: 
+         logger.error(f"Router: Database/Service error during problemset creation: {e}", exc_info=True)
+         detail = f"Database error occurred: {e}" if isinstance(e, SQLAlchemyError) else str(e)
+         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail)
+    except Exception as e:
+        logger.error(f"Router: Unexpected error during problemset creation: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
+
+
+@router.get(
+    "/",
+    response_model=List[ProblemsetSchema],
+    summary="Get All Problemsets"
+)
+def read_all_problemsets(db: Session = Depends(get_db)):
+    logger.info("Router: Request received for GET /problemsets")
+    try:
+        problemsets = problemset_service.get_all(db)
+        logger.info(f"Router: Returning {len(problemsets)} problemsets.")
+        return problemsets
+    except ProblemsetServiceError as e: 
+        logger.error(f"Router: Service error fetching all problemsets: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    except Exception as e:
+        logger.error(f"Router: Unexpected error fetching all problemsets: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
+
+
+@router.get(
+    "/{problemset_id}",
+    response_model=ProblemsetSchema,
+    summary="Get Problemset by ID"
+)
+def read_problemset(problemset_id: int, db: Session = Depends(get_db)):
+    logger.info(f"Router: Request received for GET /problemsets/{problemset_id}")
+    try:
+        problemset_data = problemset_service.get_one(db, problemset_id) 
+        if problemset_data is None:
+            logger.warning(f"Router: Problemset with id {problemset_id} not found.")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problemset not found")
+        
+        # Sort problems by position before returning (consistency)
+        if problemset_data.problems:
+            problemset_data.problems.sort(key=lambda link: link.position if link.position is not None else float('inf'))
+            
+        logger.info(f"Router: Returning problemset with id {problemset_id}.")
+        return problemset_data
+    except ProblemsetServiceError as e:
+        logger.error(f"Router: Service error fetching problemset id {problemset_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    except HTTPException as http_exc:
+        raise http_exc 
+    except Exception as e: 
+        logger.error(f"Router: Unexpected error fetching problemset id {problemset_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
+    
+
+@router.put(
+    "/{problemset_id}",
+    response_model=ProblemsetSchema,
+    summary="Update Existing Problemset"
+)
+def update_existing_problemset(
+    problemset_id: int,
+    problemset_update: ProblemsetUpdate,
+    db: Session = Depends(get_db)
+):
+    logger.info(f"Router: Request received for PUT /problemsets/{problemset_id}")
+    try:
+        updated_problemset = problemset_service.update(db=db, problemset_id=problemset_id, problemset_update=problemset_update)
+        if updated_problemset is None:
+            logger.warning(f"Router: Problemset with id {problemset_id} not found for update.")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problemset not found")
+        logger.info(f"Router: Problemset {problemset_id} updated successfully.")
+        # Eager load relationships for the response model
+        db.refresh(updated_problemset)
+        if hasattr(Problemset, 'problems'):
+             db.query(Problemset).options(joinedload(Problemset.problems)).filter(Problemset.id == updated_problemset.id).first()
+        return updated_problemset
+    except (SQLAlchemyError, ProblemsetServiceError) as e:
+         logger.error(f"Router: Database/Service error during problemset update (id: {problemset_id}): {e}", exc_info=True)
+         detail = f"Database error occurred: {e}" if isinstance(e, SQLAlchemyError) else str(e)
+         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail)
+    except HTTPException as http_exc:
+         raise http_exc 
+    except Exception as e:
+        logger.error(f"Router: Unexpected error during problemset update (id: {problemset_id}): {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
+
+
+@router.delete(
+    "/{problemset_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete Problemset"
+)
+def delete_existing_problemset(problemset_id: int, db: Session = Depends(get_db)):
+    logger.info(f"Router: Request received for DELETE /problemsets/{problemset_id}")
+    try:
+        success = problemset_service.delete(db=db, problemset_id=problemset_id)
+        if not success:
+            logger.warning(f"Router: Problemset with id {problemset_id} not found for deletion.")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problemset not found")
+        logger.info(f"Router: Problemset {problemset_id} deleted successfully.")
+        return None
+    except (SQLAlchemyError, ProblemsetServiceError) as e:
+        logger.error(f"Router: Database/Service error during problemset deletion (id: {problemset_id}): {e}", exc_info=True)
+        detail = f"Database error occurred: {e}" if isinstance(e, SQLAlchemyError) else str(e)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail)
+    except HTTPException as http_exc:
+        raise http_exc 
+    except Exception as e:
+        logger.error(f"Router: Unexpected error during problemset deletion (id: {problemset_id}): {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
+
+# --- Endpoints for Managing Problem Associations ---
+
+@router.post(
+    "/{problemset_id}/problems/{problem_id}",
+    response_model=ProblemsetProblemsSchema,
+    status_code=status.HTTP_201_CREATED,
+    summary="Add Problem to Problemset",
+    tags=["Problemsets", "Associations"]
+)
+def add_problem_to_problemset_endpoint(
+    problemset_id: int,
+    problem_id: int,
+    position: Optional[int] = Query(None, ge=1, description="Optional position for the problem in the set. If None, appends to the end."),
+    db: Session = Depends(get_db)
+):
+    logger.info(f"Router: Attempting to add problem {problem_id} to problemset {problemset_id} at position {position}.")
+    try:
+        link = problemset_service.add_problem_to_problemset(
+            db, problemset_id=problemset_id, problem_id=problem_id, position=position
+        )
+        if link is None:
+            ps = problemset_service.get_one(db, problemset_id)
+            if not ps:
+                logger.warning(f"Router: Add failed - Problemset {problemset_id} not found.")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Problemset with id {problemset_id} not found.")
+            
+            prob = problem_service.get_one(db, problem_id) 
+            if not prob:
+                logger.warning(f"Router: Add failed - Problem {problem_id} not found.")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Problem with id {problem_id} not found.")
+            
+            existing_db_link = db.query(ProblemsetProblems).filter_by(id_problemset=problemset_id, id_problem=problem_id).first()
+            if existing_db_link:
+                logger.warning(f"Router: Add failed - Problem {problem_id} already in problemset {problemset_id}.")
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Problem {problem_id} is already in problemset {problemset_id}.")
+
+            if position is not None:
+                occupied_by_other = (
+                    db.query(ProblemsetProblems)
+                    .filter(
+                        ProblemsetProblems.id_problemset == problemset_id,
+                        ProblemsetProblems.position == position,
+                        ProblemsetProblems.id_problem != problem_id 
+                    )
+                    .first()
+                )
+                if occupied_by_other:
+                    logger.warning(f"Router: Add failed - Position {position} in problemset {problemset_id} is already occupied.")
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Position {position} in problemset {problemset_id} is already occupied.")
+            
+            logger.error(f"Router: Add problem to problemset failed for an unknown reason after checks.")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to add problem to problemset. Ensure position is valid if provided.")
+
+        logger.info(f"Router: Successfully added problem {problem_id} to problemset {problemset_id}.")
+        return link
+    except ProblemsetServiceError as e:
+        logger.error(f"Router: Service error adding problem to problemset: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    except HTTPException as http_exc: 
+        raise http_exc
+    except Exception as e:
+        logger.error(f"Router: Unexpected error adding problem to problemset: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
+
+
+@router.delete(
+    "/{problemset_id}/problems/{problem_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Remove Problem from Problemset",
+    tags=["Problemsets", "Associations"]
+)
+def remove_problem_from_problemset_endpoint(
+    problemset_id: int,
+    problem_id: int,
+    db: Session = Depends(get_db)
+):
+    logger.info(f"Router: Attempting to remove problem {problem_id} from problemset {problemset_id}.")
+    try:
+        success = problemset_service.remove_problem_from_problemset(
+            db, problemset_id=problemset_id, problem_id=problem_id
+        )
+        if not success:
+            logger.warning(f"Router: Link between problem {problem_id} and problemset {problemset_id} not found for deletion.")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem association not found.")
+        
+        logger.info(f"Router: Successfully removed problem {problem_id} from problemset {problemset_id}.")
+        return None 
+    except ProblemsetServiceError as e:
+        logger.error(f"Router: Service error removing problem from problemset: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    except HTTPException as http_exc: 
+        raise http_exc
+    except Exception as e:
+        logger.error(f"Router: Unexpected error removing problem from problemset: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
+
+# --- NEW ENDPOINT FOR REORDERING PROBLEMS ---
+@router.put(
+    "/{problemset_id}/problems/order",
+    response_model=ProblemsetSchema, # Return the full updated problemset
+    summary="Reorder Problems in a Problemset",
+    tags=["Problemsets", "Associations"]
+)
+def reorder_problems_in_problemset_endpoint(
+    problemset_id: int,
+    payload: ReorderProblemsPayload, # Use the Pydantic model for the body
+    db: Session = Depends(get_db)
+):
+    """
+    Updates the order of problems within a specific problemset.
+    The request body should contain a list of problem IDs in the desired new order.
+    This list MUST contain ALL problems currently associated with the problemset.
+    """
+    logger.info(f"Router: Reordering problems for problemset {problemset_id}. New order: {payload.problem_ids_ordered}")
+    try:
+        updated_links = problemset_service.reorder_problems_in_problemset(
+            db, problemset_id=problemset_id, problem_ids_ordered=payload.problem_ids_ordered
+        )
+        
+        if updated_links is None:
+            logger.warning(f"Router: Reorder failed - Problemset {problemset_id} not found (service returned None).")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Problemset {problemset_id} not found.")
+
+        logger.info(f"Router: Successfully reordered problems for problemset {problemset_id}.")
+        
+        # Fetch the updated problemset to return it
+        # get_one already eager loads, but we call it again after commit
+        updated_problemset = problemset_service.get_one(db, problemset_id)
+        if not updated_problemset:
+             # This shouldn't happen if reorder succeeded, but handle defensively
+             logger.error(f"Router: Failed to fetch problemset {problemset_id} after successful reorder.")
+             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve updated problemset.")
+        
+        # Sort problems by position before returning
+        if updated_problemset.problems:
+            updated_problemset.problems.sort(key=lambda link: link.position if link.position is not None else float('inf'))
+            
+        return updated_problemset
+
+    except ProblemsetServiceError as e:
+        logger.error(f"Router: Service error during problem reorder for problemset {problemset_id}: {e}", exc_info=False) # Log less verbosely for validation errors
+        # Check for specific validation messages if needed, otherwise return 400
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except HTTPException as http_exc: # Re-raise 404 if raised explicitly by service
+        raise http_exc
+    except Exception as e:
+        logger.error(f"Router: Unexpected error reordering problems for problemset {problemset_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred during reordering.")
+
+
+# --- Existing Lecture/PDF Specific Endpoints ---
+
+@router.get(
+    "/{problemset_id}/lecture-data",
+    response_model=ProblemsetSchema,
+    summary="Get Eagerly Loaded Data for a Specific Problemset (e.g., Lecture)",
+    tags=["Lectures"], 
+    responses={
+        404: {"description": "Problemset not found"},
+    }
+)
+def get_lecture_data_by_id(
+    problemset_id: int,
+    db: Session = Depends(get_db)
+) -> ProblemsetSchema:
+    # Delegate to the main get_one function now that it eager loads
+    return read_problemset(problemset_id=problemset_id, db=db)
+
+
+@router.post(
+    "/process-pdf",
+    response_model=ProblemsetSchema,
+    summary="Process PDF Lecture, Extract Data, and Save to Database",
+    tags=["Lectures", "AI Processing"], 
+    status_code=status.HTTP_201_CREATED
+)
+async def process_lecture_pdf_upload(
+    file: UploadFile = File(..., description="PDF file containing the lecture and math problem"),
+    gemini_service: GeminiService = Depends(get_gemini_service), 
+    lecture_service: ProblemsetService = Depends(get_lecture_service), 
+    db: Session = Depends(get_db)
+) -> ProblemsetSchema:
+    logger.info(f"Router: Received PDF file upload request: {file.filename} (type: {file.content_type})")
+    if file.content_type != "application/pdf":
+        logger.warning(f"Router: Invalid file type uploaded: {file.content_type}.")
+        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Unsupported file type: PDF only.")
+    try:
+        pdf_bytes = await file.read()
+        if not pdf_bytes: raise ValueError("Uploaded PDF file is empty.")
+        logger.info(f"Router: Read {len(pdf_bytes)} bytes from '{file.filename}'.")
+    except Exception as e:
+        logger.error(f"Router: Failed to read uploaded file '{file.filename}': {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Could not read uploaded file: {e}")
+    finally:
+        await file.close()
+
+    extracted_data: LectureProblemsOutput
+    try:
+        logger.info("Router: Calling GeminiService.process_lecture_pdf for extraction...")
+        extracted_data = await gemini_service.process_lecture_pdf(pdf_bytes) 
+        logger.info("Router: Received extracted data from GeminiService.")
+    except (GeminiJSONError, GeminiResponseValidationError, GeminiServiceError) as e:
+        logger.error(f"Router: AI Service error during extraction: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error processing AI response: {e}")
+    except Exception as e:
+        logger.error(f"Router: Unexpected error during extraction: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error during data extraction.")
+
+    created_lecture_orm: Problemset
+    try:
+        logger.info("Router: Calling ProblemsetService CLASS method create_problemset_from_ai_output...")
+        created_lecture_orm = lecture_service.create_problemset_from_ai_output(db=db, ai_data=extracted_data)
+        logger.info(f"Router: Successfully saved lecture (ID: {created_lecture_orm.id}) and problems.")
+    except ProblemsetServiceError as e:
+         logger.error(f"Router: Problemset Service error saving data: {e}", exc_info=True)
+         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to save extracted data: {e}")
+    except Exception as e:
+         logger.error(f"Router: Unexpected error while saving data: {e}", exc_info=True)
+         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error while saving data.")
+
+    return created_lecture_orm
+
+
+@router.get(
+    "/{problemset_id}/pdf",
+    summary="Generate and Download PDF for a Problemset",
+    tags=["PDF Generation"], 
+    response_class=StreamingResponse,
+    responses={
+        200: {"content": {"application/pdf": {}}, "description": "Successful PDF download."},
+        404: {"description": "Problemset not found."},
+        500: {"description": "Internal server error during PDF generation."},
+        503: {"description": "PDF generation service unavailable."},
+    }
+)
+async def download_problemset_pdf(
+    problemset_id: int,
+    db: Session = Depends(get_db)
+):
+    logger.info(f"PDF download request received for Problemset ID: {problemset_id}")
+    try:
+        pdf_bytes = get_problemset_pdf(db, problemset_id)
+        pdf_stream = io.BytesIO(pdf_bytes)
+        problemset_db = db.query(Problemset).filter(Problemset.id == problemset_id).first() 
+        safe_title = "problemset"
+        if problemset_db and problemset_db.title:
+            safe_title = "".join(c if c.isalnum() or c in ['-', '_'] else '_' for c in problemset_db.title.replace(' ', '_'))
+        filename = f"{safe_title}_{problemset_id}.pdf"
+        logger.info(f"Streaming PDF response for {filename}")
+        return StreamingResponse(
+            pdf_stream,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except ProblemsetNotFound as e:
+        logger.warning(f"PDF Gen: Problemset not found (ID: {problemset_id}): {e}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except FileNotFoundError as e:
+        logger.error(f"PDF Gen: Prerequisite missing: {e}")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"PDF generation tool missing: {e}")
+    except PDFGenerationError as e:
+        logger.error(f"PDF Gen Error (ID: {problemset_id}): {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"PDF generation failed: {e}")
+    except Exception as e:
+        logger.exception(f"Unexpected PDF download error (ID: {problemset_id}): {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unexpected error generating PDF.")
+    
+
+@router.get("/{problemset_id}/pdf",
+            response_class=Response, # Use Response for direct bytes
+            responses={
+                200: {
+                    "content": {"application/pdf": {}},
+                    "description": "Returns the PDF of the problemset."
+                },
+                404: {"description": "Problemset not found"},
+                500: {"description": "PDF Generation Error"}
+            })
+async def get_problemset_pdf_endpoint(problemset_id: int, db: Session = Depends(get_db)):
+    try:
+        pdf_bytes = pdf_service.get_problemset_pdf(db, problemset_id)
+        
+        # Use Response for direct bytes with correct media type
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"inline; filename=problemset_{problemset_id}.pdf"
+            }
+        )
+    except pdf_service.ProblemsetNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except pdf_service.PDFGenerationError as e:
+        # Log the detailed error on the server
+        pdf_service.logger.error(f"PDF Generation Error for problemset {problemset_id}: {e.log if e.log else str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate PDF. {str(e)}")
+    except Exception as e:
+        pdf_service.logger.exception(f"Unexpected error serving PDF for problemset {problemset_id}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred while generating the PDF.")
+
+# --- NEW Endpoint for compiling arbitrary LaTeX ---
+@router.post("/compile-latex",
+             response_class=Response,
+             responses={
+                 200: {
+                     "content": {"application/pdf": {}},
+                     "description": "Returns the compiled PDF."
+                 },
+                 500: {"description": "PDF Compilation Error"}
+             })
+async def compile_latex_from_text_endpoint(payload: dict): # Expecting {"latex_code": "..."}
+    latex_code = payload.get("latex_code")
+    if not latex_code:
+        raise HTTPException(status_code=400, detail="latex_code field is required.")
+    
+    try:
+        pdf_bytes = pdf_service.compile_latex_to_pdf(latex_code)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": "inline; filename=compiled_document.pdf"
+            }
+        )
+    except pdf_service.PDFGenerationError as e:
+        pdf_service.logger.error(f"Direct LaTeX Compilation Error: {e.log if e.log else str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to compile LaTeX. {str(e)}")
+    except FileNotFoundError as e: # Specifically for pdflatex not found
+        pdf_service.logger.error(f"pdflatex not found during direct compilation: {e}")
+        raise HTTPException(status_code=500, detail="PDF compiler (pdflatex) not found on the server.")
+    except Exception as e:
+        pdf_service.logger.exception(f"Unexpected error during direct LaTeX compilation.")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred during LaTeX compilation.")
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/routers/user.py ---
+import logging
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
+
+from server.schemas.user import UserCreate, UserLogin, UserOut, UserUpdate
+from server.services.auth import create_access_token
+from server.services import user as user_service
+from server.models.user import User
+from server.dependencies import get_db
+
+from typing import List
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(
+    prefix="/users",
+    tags=["Users"]
+)
+
+@router.post("/register", response_model=UserOut)
+def register(user: UserCreate, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.email == user.email).first()
+    if db_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    return user_service.create(db, user)
+
+@router.post("/login")
+def login(user_login: UserLogin, db: Session = Depends(get_db)):
+    user = user_service.authenticate_user(db, user_login.email, user_login.password)
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid credentials")
+    token = create_access_token(data={"sub": user.email})
+    return {"access_token": token, "token_type": "bearer"}
+
+@router.get("/", response_model=List[UserOut], summary="Get All Users")
+def read_all_users(db: Session = Depends(get_db)):
+    logger.info("Router: Request received for GET /users")
+    users = user_service.get_all(db)
+    return users
+
+@router.get("/{user_id}", response_model=UserOut, summary="Get User by ID")
+def read_user(user_id: int, db: Session = Depends(get_db)):
+    logger.info(f"Router: Request received for GET /users/{user_id}")
+    user = user_service.get_one(db, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete User")
+def delete_user(user_id: int, db: Session = Depends(get_db)):
+    logger.info(f"Router: Request received for DELETE /users/{user_id}")
+    success = user_service.delete(db, user_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="User not found")
+    return None
+
+@router.put("/{user_id}", response_model=UserOut, summary="Update Existing User")
+def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get_db)):
+    logger.info(f"Router: Request received for PUT /users/{user_id}")
+    try:
+        updated_user = user_service.update(db, user_id, user_update)
+        if not updated_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        return updated_user
+    except SQLAlchemyError as e:
+        logger.error(f"Router: DB error during user update: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error during update")
+    except Exception as e:
+        logger.error(f"Router: Unexpected error during user update: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Unexpected error during update")
+
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/routers/__init__.py ---
+from .problems import router as problems_router
+from .problemsets import router as problemsets_router
+
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/schemas/problem.py ---
+# server/schemas/problem.py
+from pydantic import BaseModel, ConfigDict, Field # <-- Added Field
+from typing import Optional, List, Literal # <-- Added Literal
+
+# Define the allowed categories
+CategoryLiteral = Literal['A', 'N', 'G', 'C']
+
+# Base schema with common fields (used for input and inheritance)
+class ProblemBase(BaseModel):
+    latex_text: str
+    # Use Literal for category validation at the schema level
+    category: CategoryLiteral = Field(..., examples=['A', 'N', 'G', 'C'])
+    comments: Optional[str] = None
+    # Use JSON compatible type hint if storing complex JSON, keep List[str] if simple list
+    latex_versions: Optional[List[str]] = None # Or Optional[Any] if complex JSON
+    solution: Optional[str] = None
+
+# Schema for creating a new problem (used in POST request body)
+class ProblemCreate(ProblemBase):
+    pass # Inherits all fields from ProblemBase
+
+# Schema for updating a problem via PUT (requires all fields)
+class ProblemUpdate(ProblemBase):
+    pass
+
+# --- NEW SCHEMA FOR PATCH ---
+# Schema for partially updating a problem (used in PATCH request body)
+# All fields are optional
+class ProblemPartialUpdate(BaseModel):
+    latex_text: Optional[str] = None
+    category: Optional[CategoryLiteral] = None
+    comments: Optional[str] = None
+    latex_versions: Optional[List[str]] = None # Or Optional[Any]
+    solution: Optional[str] = None
+
+# Schema for representing a Problem in API responses (used in GET responses)
+class ProblemSchema(ProblemBase):
+    id: int # Include the ID generated by the database
+
+    # Pydantic V2 configuration using ConfigDict
+    model_config = ConfigDict(
+        from_attributes = True # Replaces orm_mode=True
+    )
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/schemas/problemset.py ---
+# server/schemas/problemset.py
+from pydantic import BaseModel, Field, ConfigDict
+from typing import Optional, List
+
+# Import the schema for the link object
+# Ensure this import path is correct relative to your project structure
+from .problemset_problems import ProblemsetProblemsSchema
+
+# Keep the AI Output schemas if still needed elsewhere
+class ProblemOutput(BaseModel):
+    latex_text: str
+    category: str
+
+class LectureProblemsOutput(BaseModel):
+    lecture_name: str
+    group_name: str
+    problems_latex: List[ProblemOutput]
+
+# --- NEW SCHEMAS FOR CRUD ---
+
+# Base schema with fields common to Create, Update, and Read
+class ProblemsetBase(BaseModel):
+    title: str = Field(..., examples=["Algebra Basics"])
+    type: str = Field(..., examples=["predavanje", "vjezbe", "ispit"]) # Lecture, exercises, exam
+    part_of: str = Field(..., examples=["ljetni kamp", "skola matematike"]) # Context like camp or regular school
+    group_name: Optional[str] = Field(None, examples=["pocetna", "napredna"]) # Target group, can be optional
+
+# Schema for creating a new problemset (used in POST request body)
+class ProblemsetCreate(ProblemsetBase):
+    # No additional fields needed for creation beyond the base fields for now
+    pass
+
+# Schema for updating an existing problemset (used in PUT request body)
+# Allows all fields from Base to be updated.
+# For partial updates (PATCH), you might make fields Optional here.
+class ProblemsetUpdate(ProblemsetBase):
+    pass
+
+# --- UPDATED SCHEMA FOR RESPONSES ---
+
+# Schema for representing a Problemset in API responses (used in GET responses)
+# Inherits from Base and adds database-generated fields and relationships
+class ProblemsetSchema(ProblemsetBase):
+    id: int # Include the ID generated by the database
+
+    # Relationship using the Association Object Schema
+    # This will include the position and the nested ProblemSchema
+    problems: List[ProblemsetProblemsSchema] = []
+
+    # Pydantic V2 configuration using ConfigDict
+    model_config = ConfigDict(
+        from_attributes = True # Replaces orm_mode=True in Pydantic v1
+    )
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/schemas/problemset_problems.py ---
+# server/schemas/problemset_problems.py
+from pydantic import BaseModel, ConfigDict
+from typing import Optional
+
+# Import the schema for the nested Problem object
+from .problem import ProblemSchema
+
+class ProblemsetProblemsSchema(BaseModel):
+    """Pydantic schema representing the link between a Problemset and a Problem."""
+    # --- ADD position ---
+    position: int
+    # Add other fields if needed (e.g., problem_version_key)
+
+    # Include the nested Problem details
+    problem: ProblemSchema
+
+    # Config for ORM mode
+    model_config = ConfigDict(
+        from_attributes=True
+    )
+    # model_config = ConfigDict(from_attributes=True) # Pydantic v2
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/schemas/user.py ---
+# server/schemas/user.py
+from pydantic import BaseModel, EmailStr
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+    surname: str
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class UserUpdate(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+    surname: str
+
+class UserOut(BaseModel):
+    id: int
+    email: EmailStr
+    name: str
+    surname: str
+
+    class Config:
+        orm_mode = True
+
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/schemas/__init__.py ---
+
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/services/auth.py ---
+# server/services/auth.py
+from datetime import datetime, timedelta
+from jose import JWTError, jwt
+
+SECRET_KEY = "tajna_lozinka"  # koristi .env u produkciji
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+def create_access_token(data: dict, expires_delta: timedelta | None = None):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/services/gemini_service.py ---
+# server/services/gemini_service.py
+
+import logging
+import json
+from typing import Dict, Any # Keep Dict for intermediate parsed data
+
+# Import the specific genai types used for API calls
+from google import genai
+from google.genai import types
+
+# Import run_in_threadpool as service methods will be called from async routers
+from fastapi.concurrency import run_in_threadpool
+
+# Import the Pydantic model for AI output from schemas
+try:
+    from ..schemas.problemset import LectureProblemsOutput # Import the AI output model
+except ImportError as e:
+    logging.error(f"Failed to import Pydantic schema LectureProblemsOutput: {e}")
+    raise
+
+
+logger = logging.getLogger(__name__)
+
+# Define model names as constants
+GEMINI_FLASH_2_5 = "gemini-2.5-flash-preview-04-17"
+
+
+# Define custom service-level exceptions
+class GeminiServiceError(Exception):
+    """Base exception for Gemini service errors."""
+    pass
+
+class GeminiJSONError(GeminiServiceError):
+    """Exception raised when Gemini returns invalid JSON."""
+    pass
+
+class GeminiResponseValidationError(GeminiServiceError):
+     """Exception raised when AI response JSON fails Pydantic validation."""
+     pass
+
+
+class GeminiService:
+    """
+    Service class to encapsulate interactions with the Gemini API.
+    """
+    def __init__(self, client: genai.Client):
+        """Initializes the GeminiService with an instantiated genai.Client."""
+        self.client = client
+        logger.info("GeminiService initialized.")
+
+    async def process_lecture_pdf(self, pdf_bytes: bytes) -> LectureProblemsOutput:
+        """
+        Processes a PDF lecture file using Gemini and extracts structured data,
+        including problem categories.
+
+        Returns:
+            A LectureProblemsOutput Pydantic model instance.
+        """
+        logger.info("Service method: processing lecture PDF for text and category.")
+
+        # --- Prepare Contents using Inline Data (with updated prompt) ---
+        contents = [
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part(inline_data=types.Blob(
+                        mime_type="application/pdf",
+                        data=pdf_bytes
+                    )),
+                    types.Part.from_text(text="""Extract the following from this PDF document:
+1. The lecture name (title/topic).
+2. The target group, mapping it to one of: 'napredna', 'olimpijska', 'pocetna', 'predolimpijska', 'srednja'.
+3. A list of all distinct math problems. For EACH problem in the list, provide:
+    a. Its full LaTeX source code.
+    b. Its most likely category, assigning exactly one letter: 'A' for Algebra, 'N' for Number Theory, 'G' for Geometry, or 'C' for Combinatorics.
+Return the output as a single JSON object conforming to the specified schema."""),
+                ],
+            ),
+        ]
+        logger.debug("Service: Constructed contents for PDF processing including category.")
+
+        # --- Define generation config with updated response_schema ---
+        generate_content_config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=genai.types.Schema(
+                type = genai.types.Type.OBJECT,
+                required = ["lecture_name", "group_name", "problems_latex"],
+                properties = {
+                    "lecture_name": genai.types.Schema(type = genai.types.Type.STRING, description = "The main title or name/topic of the lecture found in the document."),
+                    "group_name": genai.types.Schema(type = genai.types.Type.STRING, description = "The target group for the lecture, mapped precisely to one of the five allowed values.", enum = ["napredna", "olimpijska", "pocetna", "predolimpijska", "srednja"]),
+                    "problems_latex": genai.types.Schema(
+                        type = genai.types.Type.ARRAY,
+                        description = "A list of objects, each containing the LaTeX source and category for a distinct problem.",
+                        items = genai.types.Schema(
+                            type = genai.types.Type.OBJECT,
+                            properties = {
+                                'latex_text': genai.types.Schema(type=genai.types.Type.STRING, description="The full LaTeX representation of a single math problem."),
+                                'category': genai.types.Schema(type=genai.types.Type.STRING, description="The category of the problem (A, N, G, or C).", enum = ['A', 'N', 'G', 'C'])
+                            },
+                            required = ['latex_text', 'category']
+                        )
+                    ),
+                },
+            ),
+            system_instruction=[types.Part.from_text(text="""You are a highly accurate extraction engine specializing in mathematical lecture documents (PDFs) from math camps. Your task is to parse the provided PDF and extract the lecture title, target group (mapped to 'napredna', 'olimpijska', 'pocetna', 'predolimpijska', or 'srednja'), and a list of problems. For each problem, provide its LaTeX source and its category ('A', 'N', 'G', or 'C'). Adhere strictly to the provided JSON output schema."""),],
+        )
+        logger.debug("Service: Defined generation config with updated response schema for problem categories.")
+
+        # --- Call generate_content_stream and collect response ---
+        full_json_string = ""
+        try:
+            logger.info(f"Service: Calling Gemini model '{GEMINI_FLASH_2_5}' (streaming)...")
+            def _get_streamed_response_text():
+                text = ""
+                stream = self.client.models.generate_content_stream(model=GEMINI_FLASH_2_5, contents=contents, config=generate_content_config,)
+                for chunk in stream:
+                    if hasattr(chunk, 'text') and chunk.text: text += chunk.text
+                return text
+            full_json_string = await run_in_threadpool(_get_streamed_response_text)
+            logger.info("Service: Finished receiving streamed response.")
+            logger.debug(f"Service: Full raw string received (first 500 chars): {full_json_string[:500]}...")
+        except Exception as e:
+             logger.error(f"Service: Error during Gemini generation streaming: {e}", exc_info=True)
+             raise GeminiServiceError(f"AI content generation failed: {e}")
+
+        # --- Parse and Validate the collected JSON string ---
+        if not full_json_string:
+            logger.warning("Service: Received empty response string from Gemini.")
+            raise GeminiServiceError("AI service returned an empty response.")
+        try:
+            parsed_data: Dict[str, Any] = json.loads(full_json_string)
+            logger.info("Service: Successfully parsed Gemini response as JSON.")
+            logger.debug("Service: Validating parsed data against LectureProblemsOutput schema...")
+            validated_data = LectureProblemsOutput(**parsed_data) # Validation happens here
+            logger.info("Service: Parsed data successfully validated.")
+            return validated_data # Return validated Pydantic object
+        except json.JSONDecodeError as e:
+            logger.error(f"Service: Failed to decode JSON response: {e}. Raw string: {full_json_string}", exc_info=True)
+            raise GeminiJSONError(f"AI service returned invalid JSON: {e}")
+        except Exception as e: # Catch Pydantic ValidationError etc.
+            logger.error(f"Service: An error occurred during JSON parsing or Pydantic validation: {e}", exc_info=True)
+            raise GeminiResponseValidationError(f"AI response did not match expected data structure: {e}")
+
+    # --- Add other Gemini interaction methods here (translate_latex, image_to_latex, etc.) ---
+    # Copy/adapt these from your main.py and the previous GeminiService example
+    # Make sure they return the appropriate types (e.g., str, or Pydantic models)
+
+    async def translate_latex(self, latex_text: str) -> str:
+        # ... implementation ... (as in previous GeminiService example)
+        pass # Replace with actual implementation
+
+    async def image_to_latex(self, image_bytes: bytes, mime_type: str) -> str:
+        # ... implementation ... (as in previous GeminiService example)
+        pass # Replace with actual implementation
+    # --- Add other Gemini interaction methods here ---
+
+    async def translate_latex(self, latex_text: str) -> str:
+        """Translates LaTeX text to Bosnian."""
+        logger.info(f"Service method: translating latex (first 50 chars) '{latex_text[:50]}...'")
+
+        # Model name (can be different if needed)
+        model = GEMINI_FLASH_2_5 # Or a different model suitable for translation
+
+        # Define Configuration (copied from your main.py translation route)
+        generation_config = types.GenerateContentConfig(
+            # Note: thinking_config was in your translation sample
+            thinking_config = types.ThinkingConfig(thinking_budget=0),
+            response_mime_type="text/plain",
+        )
+        logger.debug(f"Service: Using model: {model} and GenerateContentConfig for translation.")
+
+        # Construct Few-Shot Contents (copied from your main.py translation route)
+        contents = [
+            types.Content(role="user", parts=[types.Part.from_text(text="""Translate the following math problem to Bosnian. Keep Latex formatting: "Find the derivative of $f(x) = x^3 - 6x^2 + 5$. Calculate $f'(2)$." """),]),
+            types.Content(role="model", parts=[types.Part.from_text(text="""Nađite derivaciju funkcije $f(x) = x^3 - 6x^2 + 5$. Izračunajte $f'(2)$."""),]),
+            types.Content(role="user", parts=[types.Part.from_text(text=f"""Translate the following math problem to Bosnian. Keep Latex formatting: "{latex_text}" """),]),
+        ]
+        logger.debug(f"Service: Constructed contents for translation.")
+
+        # --- Call Gemini API (Non-Streaming Equivalent as in your main.py) ---
+        # Assume generate_content exists and is synchronous -> use run_in_threadpool
+        try:
+             logger.info(f"Service: Calling Gemini model '{model}' (non-streaming)...")
+             # Function to run in the threadpool for sync call
+             def _generate_content_sync():
+                  return self.client.models.generate_content(
+                      model=model,
+                      contents=contents,
+                      config=generation_config,
+                  )
+
+             # Run the sync call in a threadpool
+             response = await run_in_threadpool(_generate_content_sync)
+
+             logger.info("Service: Received translation response.")
+
+             # Process Response (copied from your main.py translation route)
+             if hasattr(response, 'text') and response.text:
+                 translated_text = response.text
+             elif hasattr(response, 'candidates') and response.candidates and response.candidates[0].content.parts:
+                  translated_text = "".join(part.text for part in response.candidates[0].content.parts)
+                  logger.debug("Service: Accessed translation text via candidates[0].content.parts")
+             else:
+                 logger.warning(f"Service: Could not extract text from translation response. Response object: {response}")
+                 raise GeminiServiceError("Translation failed: Could not parse response from service.")
+
+             logger.info(f"Service: Successfully translated text (first 50 chars) to: '{translated_text[:50]}...'")
+             return translated_text.strip()
+
+        except Exception as e:
+            logger.error(f"Service: An unexpected error occurred during translation: {e}", exc_info=True)
+            raise GeminiServiceError(f"An internal error occurred during translation: {e}")
+
+
+    async def image_to_latex(self, image_bytes: bytes, mime_type: str) -> str:
+        """Converts an image of a math problem to LaTeX."""
+        logger.info(f"Service method: converting image to latex (type: {mime_type}).")
+
+        # Model name
+        model = GEMINI_FLASH_2_5 # Or a model suitable for image understanding
+
+        # Define Configuration (copied from your main.py image-to-latex route)
+        generation_config = types.GenerateContentConfig(
+            # Note: thinking_config was NOT in your image sample
+            response_mime_type="text/plain",
+        )
+        logger.debug(f"Service: Using model: {model} and GenerateContentConfig for image-to-latex.")
+
+        # --- Construct Contents with Image Data and Text Prompt (copied from your main.py image-to-latex route) ---
+        contents = [
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part(inline_data=types.Blob(
+                        mime_type=mime_type, # Use the provided mime type
+                        data=image_bytes # Use the provided bytes
+                    )),
+                    types.Part.from_text(text="""Give me the latex for the following math problem."""),
+                ]
+            )
+        ]
+        logger.debug("Service: Constructed multi-part contents (image + text) for image-to-latex.")
+
+        # --- Call Gemini API (Non-Streaming Equivalent as in your main.py) ---
+        # Assume generate_content exists and is synchronous -> use run_in_threadpool
+        try:
+            logger.info(f"Service: Calling Gemini model '{model}' (non-streaming)...")
+            def _generate_content_sync():
+                 return self.client.models.generate_content(
+                     model=model,
+                     contents=contents,
+                     config=generation_config,
+                 )
+
+            response = await run_in_threadpool(_generate_content_sync)
+
+            logger.info("Service: Received image-to-latex response.")
+
+            # Process Response (copied from your main.py image-to-latex route)
+            if hasattr(response, 'text') and response.text:
+                latex_text = response.text
+            elif hasattr(response, 'candidates') and response.candidates and response.candidates[0].content.parts:
+                 latex_text = "".join(part.text for part in response.candidates[0].content.parts)
+                 logger.debug("Service: Accessed latex text via candidates[0].content.parts")
+            else:
+                 logger.warning(f"Service: Could not extract text from image-to-latex response. Response object: {response}")
+                 raise GeminiServiceError("Image-to-LaTeX failed: Could not parse response from service.")
+
+            logger.info(f"Service: Successfully generated LaTeX (first 50 chars): '{latex_text[:50]}...'")
+            return latex_text.strip()
+
+        except Exception as e:
+            logger.error(f"Service: An unexpected error occurred during image-to-latex conversion: {e}", exc_info=True)
+            raise GeminiServiceError(f"An internal error occurred during image conversion: {e}")
+
+    # Add more methods for other Gemini features here (similarity, etc.)
+    # async def check_similarity(self, problem1_latex: str, problem2_latex: str) -> float:
+    #     ... call gemini ...
+    #     return similarity_score
+
+    # async def improve_text(self, text: str) -> str:
+    #     ... call gemini ...
+    #     return improved_text
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/services/pdf_service.py ---
+# server/services/pdf_service.py
+
+import logging
+import os
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
+from typing import Optional
+import io # Needed for StreamingResponse
+
+from sqlalchemy.orm import Session, joinedload
+
+# Import models - adjust paths if needed
+from ..models.problemset import Problemset
+from ..models.problemset_problems import ProblemsetProblems
+from ..models.problem import Problem
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class PDFGenerationError(Exception):
+    """Custom exception for PDF generation failures."""
+    def __init__(self, message, log=None):
+        super().__init__(message)
+        self.log = log # Store compilation log if available
+
+class ProblemsetNotFound(Exception):
+    """Custom exception for when a problemset isn't found."""
+    pass
+
+def _escape_latex(text: Optional[str]) -> str:
+    """
+    Basic LaTeX escaping for safety. Handles None input.
+    More complex escaping might be needed depending on the source text.
+    """
+    if text is None:
+        return ""
+    text = str(text) # Ensure it's a string
+    # Basic replacements - might need expansion based on your data
+    chars_to_escape = {
+        '&': r'\&', '%': r'\%', '$': r'\$', '#': r'\#', '_': r'\_',
+        '{': r'\{', '}': r'\}', '~': r'\textasciitilde{}', '^': r'\textasciicircum{}',
+        '\\': r'\textbackslash{}', '<': r'\textless{}', '>': r'\textgreater{}',
+    }
+    # Escape special characters
+    escaped_text = "".join(chars_to_escape.get(c, c) for c in text)
+    # Handle newlines (replace with LaTeX double backslash)
+    # Note: Be careful if your source already contains intended LaTeX newlines
+    escaped_text = escaped_text.replace('\n', '\\\\')
+    return escaped_text
+
+def _generate_problemset_latex(problemset: Problemset) -> str:
+    """
+    Generates a LaTeX string from Problemset data, including related problems.
+    """
+    # Extract data and escape it for LaTeX
+    title = _escape_latex(problemset.title)
+    pset_type = _escape_latex(problemset.type)
+    part_of = _escape_latex(problemset.part_of)
+    group_name = _escape_latex(problemset.group_name)
+
+    # --- Generate LaTeX for Problems ---
+    problems_latex_parts = []
+    if hasattr(problemset, 'problems') and problemset.problems:
+        problems_latex_parts.append("\\section*{Problems}\n\\begin{enumerate}\n") # Use simple enumerate
+
+        # Sort problems by position if available
+        try:
+            sorted_problems = sorted(problemset.problems, key=lambda psp: psp.position if psp.position is not None else float('inf'))
+            logger.debug(f"Sorted {len(sorted_problems)} problems by position.")
+        except AttributeError:
+            logger.warning("ProblemsetProblems does not have 'position' attribute for sorting.")
+            sorted_problems = problemset.problems # Use unsorted if no position
+
+        for psp in sorted_problems: # psp is a ProblemsetProblems instance
+            problem_text = "\\textit{Problem text not found or structure error.}"
+            problem_category = ""
+            if hasattr(psp, 'problem') and psp.problem:
+                if hasattr(psp.problem, 'latex_text') and psp.problem.latex_text:
+                    problem_text = psp.problem.latex_text # Assume problem text is already LaTeX
+                else:
+                    problem_text = "\\textit{Problem LaTeX text is missing.}"
+                if hasattr(psp.problem, 'category') and psp.problem.category:
+                    problem_category = f" (Category: {_escape_latex(psp.problem.category)})" # Add category info
+
+            # DO NOT escape problem_text if it's already valid LaTeX
+            # Only escape potentially problematic characters if needed, or trust the source
+            # For now, we assume problemset.problem.latex_text IS valid LaTeX
+            problems_latex_parts.append(f"  \\item {problem_text}{problem_category}\n\n")
+
+        problems_latex_parts.append("\\end{enumerate}\n")
+    else:
+        problems_latex_parts.append("\\textit{No problems associated with this set.}\n")
+        logger.warning(f"No problems found or loaded for Problemset ID {problemset.id}")
+
+    problems_latex_str = "".join(problems_latex_parts)
+    # --- End Problem LaTeX ---
+
+    # --- Generate Final LaTeX Document ---
+    latex_string = f"""
+\\documentclass[11pt,a4paper]{{article}}
+\\usepackage[utf8]{{inputenc}}
+\\usepackage[T1]{{fontenc}}
+\\usepackage{{amsmath, amssymb, amsfonts}} % Math packages
+\\usepackage{{enumitem}} % For list customization if needed
+\\usepackage[margin=2.5cm]{{geometry}} % Page margins
+\\usepackage{{hyperref}} % Clickable links, PDF metadata
+\\hypersetup{{
+    colorlinks=true, linkcolor=blue, urlcolor=blue,
+    pdftitle={{{title}}}, pdfsubject={{Problemset: {pset_type}}},
+    pdfauthor={{Skola Matematike}}, pdfkeywords={{{group_name if group_name else ''}, {part_of}}}
+}}
+\\usepackage{{palatino}} % Use Palatino font for better readability (optional)
+\\linespread{{1.1}} % Slightly increased line spacing
+
+\\title{{\\bfseries\\LARGE {title}}} % Larger, bold title
+\\author{{Group: {group_name if group_name else 'N/A'} \\\\ Type: {pset_type} \\\\ Context: {part_of}}}
+\\date{{\\today}}
+
+\\begin{{document}}
+
+\\maketitle
+\\thispagestyle{{empty}} % No page number on title page
+\\clearpage % Start content on a new page
+\\pagenumbering{{arabic}} % Start page numbering
+
+{problems_latex_str}
+
+\\end{{document}}
+"""
+    # --- End Final LaTeX ---
+    # logger.debug(f"Generated LaTeX string:\n{latex_string[:500]}...") # Log start of LaTeX
+    return latex_string
+
+def compile_latex_to_pdf(latex_content: str) -> bytes:
+    """
+    Compiles a given LaTeX string into PDF bytes using pdflatex.
+    Handles temporary files and captures logs.
+    """
+    pdflatex_cmd = shutil.which("pdflatex")
+    if not pdflatex_cmd:
+        logger.error("pdflatex command not found in PATH.")
+        raise FileNotFoundError("pdflatex command not found. Ensure a TeX distribution is installed and in the system PATH.")
+
+    # Use a temporary directory for all intermediate files
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        # Define base name for output files
+        output_base_name = "problemset_output"
+        tex_filename = f"{output_base_name}.tex"
+        pdf_filename = f"{output_base_name}.pdf"
+        log_filename = f"{output_base_name}.log"
+        aux_filename = f"{output_base_name}.aux" # Common auxiliary file
+
+        tex_filepath = temp_path / tex_filename
+        pdf_filepath = temp_path / pdf_filename
+        log_filepath = temp_path / log_filename
+
+        # Write the LaTeX content to the .tex file
+        try:
+            with open(tex_filepath, "w", encoding="utf-8") as f:
+                f.write(latex_content)
+            logger.info(f"Temporary .tex file written to {tex_filepath}")
+        except IOError as e:
+            logger.error(f"Failed to write temporary .tex file: {e}", exc_info=True)
+            raise PDFGenerationError(f"Failed to write temporary LaTeX file: {e}")
+
+        # Command for pdflatex
+        # Use the output_base_name for -jobname
+        cmd = [
+            pdflatex_cmd,
+            "-interaction=nonstopmode",
+            f"-output-directory={temp_dir}",
+            f"-jobname={output_base_name}", # <-- CORRECTED: Use the base name string
+            str(tex_filepath),
+        ]
+
+        log_output = ""
+        compilation_successful = False
+        # Run pdflatex twice for references, TOC, etc.
+        for i in range(2):
+            logger.info(f"Running pdflatex command (Pass {i+1}/2): {' '.join(cmd)}")
+            try:
+                process = subprocess.run(
+                    cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False, timeout=30 # Added timeout
+                )
+                # Append logs from stdout/stderr
+                log_output += f"\n--- Pass {i+1} ---\nReturn Code: {process.returncode}\n"
+                if process.stdout: log_output += f"Stdout:\n{process.stdout}\n"
+                if process.stderr: log_output += f"Stderr:\n{process.stderr}\n"
+
+                # Try reading the specific .log file
+                if log_filepath.exists():
+                    try:
+                        with open(log_filepath, "r", encoding="utf-8", errors="replace") as logf:
+                            partial_log = logf.read()
+                        log_output += f"\nLog File Content (Pass {i+1}):\n{partial_log}\n"
+                        # Check for common LaTeX error indicators in the log
+                        if "! LaTeX Error:" in partial_log or "Fatal error occurred" in partial_log:
+                             logger.warning(f"LaTeX errors detected in log file on pass {i+1}.")
+                             if process.returncode != 0: # Combine log check with return code
+                                 raise PDFGenerationError(f"pdflatex compilation failed with errors (see log).", log=log_output)
+                    except IOError:
+                        log_output += f"\nCould not read log file {log_filepath} on pass {i+1}.\n"
+                else:
+                     log_output += f"\nLog file {log_filepath} not found after pass {i+1}.\n"
+
+                # Check return code strictly after potential log reading
+                if process.returncode != 0:
+                    logger.error(f"pdflatex failed on pass {i+1} with return code {process.returncode}.")
+                    raise PDFGenerationError(f"pdflatex exited with code {process.returncode} on pass {i+1}.", log=log_output)
+
+                # If we completed the second pass without non-zero return code
+                if i == 1 and process.returncode == 0:
+                     compilation_successful = True
+
+            except FileNotFoundError:
+                logger.error("pdflatex command execution failed: FileNotFoundError.")
+                raise # Re-raise the original FileNotFoundError
+            except subprocess.TimeoutExpired:
+                 logger.error("pdflatex command timed out.")
+                 raise PDFGenerationError("pdflatex compilation timed out after 30 seconds.", log=log_output)
+            except Exception as e:
+                # Log the original exception type and message
+                logger.error(f"Subprocess execution failed unexpectedly: {type(e).__name__} - {e}", exc_info=True)
+                # Wrap the original error message in the custom exception
+                raise PDFGenerationError(f"Subprocess execution failed: {e}", log=log_output)
+
+
+        # Final check after loops
+        if not compilation_successful or not pdf_filepath.is_file():
+            logger.error(f"PDF file not found or compilation failed after 2 passes: {pdf_filepath}")
+            raise PDFGenerationError("PDF file was not generated successfully after 2 compilation passes.", log=log_output)
+
+        # Read the generated PDF bytes
+        try:
+            with open(pdf_filepath, "rb") as f:
+                pdf_bytes = f.read()
+            logger.info(f"Successfully generated and read PDF: {pdf_filepath} ({len(pdf_bytes)} bytes)")
+            return pdf_bytes
+        except IOError as e:
+            logger.error(f"Failed to read generated PDF file: {e}", exc_info=True)
+            raise PDFGenerationError(f"Failed to read generated PDF file: {e}", log=log_output)
+
+
+def get_problemset_pdf(db: Session, problemset_id: int) -> bytes:
+    """
+    Fetches Problemset data (with related problems), generates LaTeX, compiles it,
+    and returns PDF bytes.
+    """
+    logger.info(f"Initiating PDF generation for Problemset ID: {problemset_id}")
+
+    # Eagerly load the necessary relationships
+    problemset = db.query(Problemset).options(
+        joinedload(Problemset.problems) # Load the list of ProblemsetProblems links
+        .joinedload(ProblemsetProblems.problem) # For each link, load the actual Problem
+    ).filter(Problemset.id == problemset_id).first()
+
+    if not problemset:
+        logger.warning(f"Problemset with ID {problemset_id} not found in database.")
+        raise ProblemsetNotFound(f"Problemset with ID {problemset_id} not found.")
+
+    logger.info(f"Generating LaTeX for Problemset '{problemset.title}' (ID: {problemset_id})")
+    try:
+        latex_content = _generate_problemset_latex(problemset)
+    except Exception as e:
+        logger.exception(f"Error generating LaTeX content for problemset {problemset_id}: {e}")
+        raise PDFGenerationError(f"Failed to generate LaTeX content: {e}")
+
+    logger.info(f"Compiling LaTeX to PDF for Problemset ID: {problemset_id}")
+    try:
+        pdf_bytes = compile_latex_to_pdf(latex_content)
+        logger.info(f"PDF compilation successful for Problemset ID: {problemset_id}")
+        return pdf_bytes
+    except (PDFGenerationError, FileNotFoundError) as e:
+        # Log already happened in compile_latex_to_pdf or above
+        logger.error(f"PDF generation failed for Problemset ID {problemset_id}: {e}")
+        raise # Re-raise the specific error for the router to handle
+    except Exception as e:
+        logger.exception(f"Unexpected error during PDF compilation for problemset {problemset_id}: {e}")
+        raise PDFGenerationError(f"An unexpected error occurred during PDF compilation: {e}")
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/services/problemset_service.py ---
+# server/services/problemset_service.py
+import logging
+from typing import List, Optional
+
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func, update as sql_update # <-- Import update
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
+
+# --- Import ORM Models ---
+try:
+    from ..models.problemset import Problemset as DBProblemset
+    from ..models.problem import Problem
+    from ..models.problemset_problems import ProblemsetProblems
+except ImportError as e:
+    logging.error(f"Failed to import SQLAlchemy models: {e}")
+    raise
+
+# --- Import Pydantic Schemas ---
+try:
+    from ..schemas.problemset import LectureProblemsOutput
+    from ..schemas.problemset import ProblemsetCreate, ProblemsetUpdate, ProblemsetSchema
+except ImportError as e:
+    logging.error(f"Failed to import Pydantic schemas: {e}")
+    raise
+
+logger = logging.getLogger(__name__)
+
+class ProblemsetServiceError(Exception):
+    pass
+
+class ProblemsetService:
+    # ... (keep existing __init__ and create_problemset_from_ai_output) ...
+    def __init__(self):
+        logger.info("ProblemsetService initialized.")
+
+    def create_problemset_from_ai_output(
+            self,
+            db: Session,
+            ai_data: LectureProblemsOutput
+        ) -> DBProblemset:
+        # (Implementation remains unchanged)
+        logger.info(f"Service: Creating problemset '{ai_data.lecture_name}' (group: {ai_data.group_name}) and {len(ai_data.problems_latex)} problems in DB.")
+        db_problemset = DBProblemset(
+            title=ai_data.lecture_name,
+            group_name=ai_data.group_name,
+            type="predavanje",
+            part_of="skola matematike"
+        )
+        db.add(db_problemset)
+
+        problem_orms = []
+        for problem_data in ai_data.problems_latex:
+            db_problem = Problem(
+                latex_text=problem_data.latex_text,
+                category=problem_data.category
+            )
+            problem_orms.append(db_problem)
+        db.add_all(problem_orms)
+
+        try:
+            logger.debug("Service: Flushing session to obtain IDs...")
+            db.flush()
+            logger.debug(f"Service: Problemset ID after flush: {db_problemset.id}")
+            if problem_orms:
+                logger.debug(f"Service: First problem ID after flush: {problem_orms[0].id}")
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Service: Error during flush: {e}", exc_info=True)
+            raise ProblemsetServiceError(f"Database error during object preparation: {e}")
+
+        if db_problemset.id is None:
+            db.rollback()
+            logger.error("Service: Problemset ID is still None after flush.")
+            raise ProblemsetServiceError("Failed to obtain Problemset ID before creating links.")
+
+        problem_links = []
+        for index, db_problem in enumerate(problem_orms):
+            if db_problem.id is None:
+                db.rollback()
+                logger.error(f"Service: Problem ID is None after flush for problem index {index}.")
+                raise ProblemsetServiceError("Failed to obtain Problem ID before creating links.")
+            link = ProblemsetProblems(
+                id_problemset = db_problemset.id,
+                id_problem = db_problem.id,
+                position = index + 1
+            )
+            problem_links.append(link)
+        db.add_all(problem_links)
+
+        try:
+            logger.debug("Service: Committing transaction...")
+            db.commit()
+            db.refresh(db_problemset)
+            if hasattr(DBProblemset, 'problems'):
+                 db.query(DBProblemset).options(joinedload(DBProblemset.problems)).filter(DBProblemset.id == db_problemset.id).first()
+
+            logger.info(f"Service: Successfully created problemset (ID: {db_problemset.id}) with {len(problem_links)} links in DB.")
+            return db_problemset
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Service: Failed to commit transaction: {e}", exc_info=True)
+            raise ProblemsetServiceError(f"Failed to save data to database during commit: {e}")
+
+# --- STANDALONE CRUD FUNCTIONS ---
+# (Keep get_all, get_one, create, update, delete as they are)
+def get_all(db: Session) -> List[DBProblemset]:
+    logger.info("Service: Fetching all problemsets.")
+    try:
+        return db.query(DBProblemset).options(joinedload(DBProblemset.problems).joinedload(ProblemsetProblems.problem)).all()
+    except SQLAlchemyError as e:
+        logger.error(f"Service: Database error occurred fetching all problemsets: {e}", exc_info=True)
+        raise ProblemsetServiceError(f"Database error fetching all problemsets: {e}")
+    except Exception as e:
+        logger.error(f"Service: Unexpected error fetching all problemsets: {e}", exc_info=True)
+        raise ProblemsetServiceError(f"Unexpected error fetching all problemsets: {e}")
+
+
+def get_one(db: Session, problemset_id: int) -> Optional[DBProblemset]:
+    logger.info(f"Service: Fetching problemset with id {problemset_id}.")
+    try:
+        # Eager load problems and their positions
+        return db.query(DBProblemset).options(
+            joinedload(DBProblemset.problems).joinedload(ProblemsetProblems.problem)
+        ).filter(DBProblemset.id == problemset_id).first()
+    except SQLAlchemyError as e:
+        logger.error(f"Service: Database error occurred fetching problemset id {problemset_id}: {e}", exc_info=True)
+        raise ProblemsetServiceError(f"Database error fetching problemset id {problemset_id}: {e}")
+    except Exception as e:
+        logger.error(f"Service: Unexpected error fetching problemset id {problemset_id}: {e}", exc_info=True)
+        raise ProblemsetServiceError(f"Unexpected error fetching problemset id {problemset_id}: {e}")
+
+
+def create(db: Session, problemset: ProblemsetCreate) -> DBProblemset:
+    logger.info(f"Service: Creating new problemset with title '{problemset.title}'.")
+    problemset_data = problemset.model_dump(exclude_unset=True)
+    db_problemset = DBProblemset(**problemset_data)
+    try:
+        db.add(db_problemset)
+        db.commit()
+        db.refresh(db_problemset)
+        logger.info(f"Service: Successfully created problemset with id {db_problemset.id}.")
+        return db_problemset
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Service: Database error occurred during problemset creation: {e}", exc_info=True)
+        raise ProblemsetServiceError(f"Database error creating problemset: {e}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Service: Unexpected error during problemset creation: {e}", exc_info=True)
+        raise ProblemsetServiceError(f"Unexpected error creating problemset: {e}")
+
+
+def update(db: Session, problemset_id: int, problemset_update: ProblemsetUpdate) -> Optional[DBProblemset]:
+    logger.info(f"Service: Attempting to update problemset with id {problemset_id}.")
+    db_problemset = get_one(db, problemset_id)
+    if not db_problemset:
+        logger.warning(f"Service: Problemset with id {problemset_id} not found for update.")
+        return None
+
+    update_data = problemset_update.model_dump(exclude_unset=True)
+
+    try:
+        for key, value in update_data.items():
+            setattr(db_problemset, key, value)
+        logger.debug(f"Service: Updating fields for problemset {problemset_id}: {update_data.keys()}")
+        db.commit()
+        db.refresh(db_problemset)
+        logger.info(f"Service: Successfully updated problemset with id {problemset_id}.")
+        return db_problemset
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Service: Database error occurred during problemset update (id: {problemset_id}): {e}", exc_info=True)
+        raise ProblemsetServiceError(f"Database error updating problemset: {e}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Service: Unexpected error during problemset update (id: {problemset_id}): {e}", exc_info=True)
+        raise ProblemsetServiceError(f"Unexpected error updating problemset: {e}")
+
+
+def delete(db: Session, problemset_id: int) -> bool:
+    logger.info(f"Service: Attempting to delete problemset with id {problemset_id}.")
+    db_problemset = get_one(db, problemset_id)
+    if not db_problemset:
+        logger.warning(f"Service: Problemset with id {problemset_id} not found for deletion.")
+        return False
+
+    try:
+        db.delete(db_problemset)
+        db.commit()
+        logger.info(f"Service: Successfully deleted problemset with id {problemset_id}.")
+        return True
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Service: Database error occurred during problemset deletion (id: {problemset_id}): {e}", exc_info=True)
+        raise ProblemsetServiceError(f"Database error deleting problemset: {e}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Service: Unexpected error during problemset deletion (id: {problemset_id}): {e}", exc_info=True)
+        raise ProblemsetServiceError(f"Unexpected error deleting problemset: {e}")
+
+
+# --- ENHANCED add_problem_to_problemset ---
+def add_problem_to_problemset(
+    db: Session, problemset_id: int, problem_id: int, position: Optional[int] = None
+) -> Optional[ProblemsetProblems]:
+    """
+    Adds an existing problem to a problemset. If position is specified, inserts
+    at that position and shifts subsequent problems. If position is None, appends.
+    """
+    logger.info(
+        f"Service: Attempting to add problem {problem_id} to problemset {problemset_id} at position {position}."
+    )
+
+    # --- Initial Checks (Remain the same) ---
+    db_problemset = db.query(DBProblemset).filter(DBProblemset.id == problemset_id).first()
+    if not db_problemset:
+        logger.warning(f"Service: Problemset with id {problemset_id} not found.")
+        return None
+
+    db_problem = db.query(Problem).filter(Problem.id == problem_id).first()
+    if not db_problem:
+        logger.warning(f"Service: Problem with id {problem_id} not found.")
+        return None
+
+    existing_link = (
+        db.query(ProblemsetProblems)
+        .filter_by(id_problemset=problemset_id, id_problem=problem_id)
+        .first()
+    )
+    if existing_link:
+        logger.warning(
+            f"Service: Problem {problem_id} is already associated with problemset {problemset_id}."
+        )
+        return None
+
+    # --- Logic based on position ---
+    actual_position: int
+    new_link: ProblemsetProblems
+
+    try:
+        if position is None:
+            # Append logic
+            max_pos = (
+                db.query(func.max(ProblemsetProblems.position))
+                .filter(ProblemsetProblems.id_problemset == problemset_id)
+                .scalar()
+            )
+            actual_position = (max_pos + 1) if max_pos is not None else 1
+            logger.debug(f"Service: Appending problem. Calculated new position: {actual_position}.")
+
+            new_link = ProblemsetProblems(
+                id_problemset=problemset_id,
+                id_problem=problem_id,
+                position=actual_position,
+            )
+            db.add(new_link)
+            # No shifting needed for append
+
+        else:
+            # Insert at specific position logic
+            actual_position = position
+            if actual_position <= 0:
+                logger.warning(f"Service: Invalid position specified: {actual_position}. Must be positive.")
+                # Returning None as it's a logical validation failure
+                return None
+
+            logger.debug(f"Service: Inserting problem at specified position: {actual_position}.")
+
+            # --- ATOMIC SHIFT AND INSERT ---
+            # 1. Shift existing items (executed within the transaction)
+            shift_stmt = (
+                sql_update(ProblemsetProblems)
+                .where(
+                    ProblemsetProblems.id_problemset == problemset_id,
+                    ProblemsetProblems.position >= actual_position # Shift items at this position and later
+                )
+                .values(position=ProblemsetProblems.position + 1)
+                .execution_options(synchronize_session="fetch")
+            )
+            db.execute(shift_stmt)
+            logger.debug(f"Service: Executed position shift statement for position >= {actual_position}.")
+
+            # 2. Create the new link at the specified position
+            new_link = ProblemsetProblems(
+                id_problemset=problemset_id,
+                id_problem=problem_id,
+                position=actual_position,
+            )
+            db.add(new_link)
+            # Shifting and adding are now part of the same transaction block
+
+        # Commit changes (either append or insert+shift)
+        db.commit()
+        db.refresh(new_link) # Refresh the newly created link
+
+        logger.info(
+            f"Service: Successfully added problem {problem_id} to problemset {problemset_id} at position {actual_position}."
+        )
+        return new_link
+
+    except IntegrityError as e:
+        db.rollback()
+        # This could happen if somehow the duplicate check failed (race condition?) or other constraint violation
+        logger.error(f"Service: Integrity error during add operation: {e}", exc_info=True)
+        return None # Logical failure (duplicate or other constraint)
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Service: Database error during add operation: {e}", exc_info=True)
+        raise ProblemsetServiceError(f"Database error adding problem to problemset: {e}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Service: Unexpected error during add operation: {e}", exc_info=True)
+        raise ProblemsetServiceError(f"Unexpected error adding problem to problemset: {e}")
+
+
+# --- ENHANCED remove_problem_from_problemset ---
+def remove_problem_from_problemset(
+    db: Session, problemset_id: int, problem_id: int
+) -> bool:
+    """
+    Removes the link between a specific problem and problemset.
+    Also shifts down the positions of subsequent problems in the same problemset.
+    """
+    logger.info(
+        f"Service: Attempting to remove problem {problem_id} from problemset {problemset_id} and shift positions."
+    )
+
+    link_to_delete = (
+        db.query(ProblemsetProblems)
+        .filter_by(id_problemset=problemset_id, id_problem=problem_id)
+        .first()
+    )
+
+    if not link_to_delete:
+        logger.warning(
+            f"Service: Link between problem {problem_id} and problemset {problemset_id} not found for deletion."
+        )
+        return False
+
+    deleted_position = link_to_delete.position
+
+    try:
+        db.delete(link_to_delete)
+        logger.debug(f"Service: Marked link for deletion (problem {problem_id}, problemset {problemset_id}).")
+
+        # Shift subsequent positions if the deleted item had a position
+        if deleted_position is not None:
+            logger.debug(f"Service: Shifting positions greater than {deleted_position} for problemset {problemset_id}.")
+            stmt = (
+                sql_update(ProblemsetProblems)
+                .where(
+                    ProblemsetProblems.id_problemset == problemset_id,
+                    ProblemsetProblems.position > deleted_position
+                )
+                .values(position=ProblemsetProblems.position - 1)
+                .execution_options(synchronize_session="fetch")
+            )
+            db.execute(stmt)
+            logger.debug("Service: Executed position shift statement.")
+        else:
+             logger.warning(f"Service: Deleted link did not have a position. Skipping position shift.")
+
+        db.commit()
+        logger.info(
+            f"Service: Successfully removed problem {problem_id} from problemset {problemset_id} and shifted positions."
+        )
+        return True
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(
+            f"Service: Database error removing problem {problem_id} from problemset {problemset_id} or shifting: {e}",
+            exc_info=True,
+        )
+        raise ProblemsetServiceError(f"Database error removing problem from problemset: {e}")
+    except Exception as e:
+        db.rollback()
+        logger.error(
+            f"Service: Unexpected error removing problem {problem_id} from problemset {problemset_id}: {e}",
+            exc_info=True,
+        )
+        raise ProblemsetServiceError(f"Unexpected error removing problem from problemset: {e}")
+
+
+# --- Keep reorder_problems_in_problemset as is ---
+def reorder_problems_in_problemset(
+    db: Session, problemset_id: int, problem_ids_ordered: List[int]
+) -> Optional[List[ProblemsetProblems]]:
+    """
+    Reorders problems within a problemset based on a provided list of problem IDs.
+    Returns the list of updated link objects on success, None if problemset not found.
+    Raises ProblemsetServiceError for validation errors or DB errors.
+    """
+    logger.info(f"Service: Reordering problems for problemset {problemset_id}. New order: {problem_ids_ordered}")
+
+    db_problemset = db.query(DBProblemset).options(
+        joinedload(DBProblemset.problems)
+    ).filter(DBProblemset.id == problemset_id).first()
+
+    if not db_problemset:
+        logger.warning(f"Service: Problemset {problemset_id} not found for reordering.")
+        return None
+
+    current_links = db_problemset.problems
+    current_problem_ids_in_set = {link.id_problem for link in current_links}
+
+    ordered_ids_set = set(problem_ids_ordered)
+    if not ordered_ids_set.issubset(current_problem_ids_in_set):
+        missing_ids = ordered_ids_set - current_problem_ids_in_set
+        logger.warning(f"Service: Reorder failed. Problem IDs {missing_ids} are not in problemset {problemset_id}.")
+        raise ProblemsetServiceError(f"Reorder failed. Problem IDs {missing_ids} not found in problemset {problemset_id}.")
+
+    if len(problem_ids_ordered) != len(current_problem_ids_in_set):
+        dropped_ids = current_problem_ids_in_set - ordered_ids_set
+        if dropped_ids:
+            logger.warning(f"Service: Reorder failed. Problem IDs {dropped_ids} were present in the set but omitted from the new order.")
+            raise ProblemsetServiceError(f"Reorder failed. Problems {dropped_ids} were omitted from the new order for problemset {problemset_id}.")
+        logger.warning(f"Service: Reorder failed. The number of problems in the new order ({len(problem_ids_ordered)}) "
+                         f"does not match the current number of problems in the set ({len(current_problem_ids_in_set)}).")
+        raise ProblemsetServiceError("Reorder failed. Mismatch in the number of problems provided versus currently in the set.")
+
+    if len(problem_ids_ordered) != len(ordered_ids_set):
+        logger.warning(f"Service: Reorder failed. Duplicate problem IDs found in the provided order: {problem_ids_ordered}")
+        raise ProblemsetServiceError("Reorder failed. Duplicate problem IDs provided in the new order.")
+
+    updated_links = []
+    try:
+        link_map = {link.id_problem: link for link in current_links}
+
+        for new_pos_idx, p_id in enumerate(problem_ids_ordered):
+            link_to_update = link_map.get(p_id)
+            if link_to_update:
+                new_position = new_pos_idx + 1
+                if link_to_update.position != new_position:
+                    link_to_update.position = new_position
+                    logger.debug(f"Service: Setting problem {p_id} to position {new_position} in problemset {problemset_id}.")
+                updated_links.append(link_to_update)
+            else:
+                logger.error(f"Service: Reorder consistency error. Problem ID {p_id} not found in link_map for problemset {problemset_id}.")
+                db.rollback()
+                raise ProblemsetServiceError(f"Internal error during reordering: problem ID {p_id} link not found.")
+
+        db.commit()
+
+        refreshed_links = []
+        for link in updated_links:
+            db.refresh(link)
+            if hasattr(link, 'problem'):
+                 db.refresh(link.problem)
+            refreshed_links.append(link)
+
+        logger.info(f"Service: Successfully reordered {len(refreshed_links)} problems in problemset {problemset_id}.")
+        return refreshed_links
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Service: Database error reordering problems for problemset {problemset_id}: {e}", exc_info=True)
+        raise ProblemsetServiceError(f"Database error reordering problems: {e}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Service: Unexpected error reordering problems for problemset {problemset_id}: {e}", exc_info=True)
+        raise ProblemsetServiceError(f"Unexpected error reordering problems: {e}")
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/services/problem_service.py ---
+import logging
+from sqlalchemy.orm import Session
+from ..models.problem import Problem as DBProblem 
+from ..schemas.problem import ProblemSchema, ProblemCreate, ProblemUpdate, ProblemPartialUpdate
+
+from typing import Optional
+
+from sqlalchemy.exc import SQLAlchemyError
+
+logger = logging.getLogger(__name__)
+
+def get_all(db: Session):
+    '''Retrieve all problems from the database'''
+    logger.info("Service: Fetching all problems.")
+    return db.query(DBProblem).all()
+
+
+def get_one(db: Session, problem_id: int):
+    '''Retrieve a single problem by its ID.'''
+    logger.info(f"Service: Fetching problem with id {problem_id}.")
+    return db.query(DBProblem).filter(DBProblem.id == problem_id).first()
+
+
+def create(db: Session, problem: ProblemCreate) -> DBProblem:
+    """Create a new problem in the database."""
+    logger.info(f"Service: Creating new problem.")
+    # Create SQLAlchemy model instance from ProblemCreate schema
+    problem_data = problem.model_dump(exclude_unset=True) # No need to check for 'id' here
+    db_problem = DBProblem(**problem_data)
+    try:
+        db.add(db_problem)
+        db.commit()
+        db.refresh(db_problem)
+        logger.info(f"Service: Successfully created problem with id {db_problem.id}.")
+        return db_problem
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Service: Database error occurred during problem creation: {e}", exc_info=True)
+        raise SQLAlchemyError(f"Database error creating problem: {e}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Service: Unexpected error during problem creation: {e}", exc_info=True)
+        raise
+
+
+def update(db: Session, problem_id: int, problem_update: ProblemUpdate) -> DBProblem | None:
+    """Update an existing problem in the database."""
+    logger.info(f"Service: Attempting to update problem with id {problem_id}.")
+    db_problem = get_one(db, problem_id)
+    if not db_problem:
+        logger.warning(f"Service: Problem with id {problem_id} not found for update.")
+        return None
+
+    # Use ProblemUpdate schema for update data
+    update_data = problem_update.model_dump(exclude_unset=True)
+
+    try:
+        for key, value in update_data.items():
+            # Still prevent updating 'id', though it's not in ProblemUpdate anyway
+            if key != "id":
+                setattr(db_problem, key, value)
+        logger.debug(f"Service: Updating fields for problem {problem_id}: {update_data.keys()}")
+        db.commit()
+        db.refresh(db_problem)
+        logger.info(f"Service: Successfully updated problem with id {problem_id}.")
+        return db_problem
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Service: Database error occurred during problem update (id: {problem_id}): {e}", exc_info=True)
+        raise SQLAlchemyError(f"Database error updating problem: {e}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Service: Unexpected error during problem update (id: {problem_id}): {e}", exc_info=True)
+        raise
+
+
+def patch(
+    db: Session, problem_id: int, problem_update: ProblemPartialUpdate
+) -> Optional[DBProblem]:
+    '''Partially update an existing problem using PATCH.'''
+    logger.info(f"Service: Attempting to partially update (PATCH) problem with id {problem_id}")
+    db_problem = get_one(db, problem_id)
+    if not db_problem:
+        logger.warning(f"Service: Problem with id {problem_id} not found for PATCH update.")
+        return None
+    
+    update_data = problem_update.model_dump(exclude_unset=True)
+
+    if not update_data:
+        logger.info(f"'Service: PATCH request for problem {problem_id} had no fields to update.")
+        return db_problem
+    
+    try:
+        for key, value in update_data.items():
+            setattr(db_problem, key, value)
+        logger.debug(f"Service: PATCH updating fields for problem {problem_id}: {update_data.keys()}")
+        db.commit()
+        db.refresh(db_problem)
+        logger.info(f"Service: Succesfully updated (PATCH) problem with id {problem_id}.")
+        return db_problem
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Service: Database error occurred during problem update (PATCH) (id: {problem_id}): {e}", exc_info=True)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Service: Unexpected error during problem update (PATCH) (id: {problem_id}): {e}")
+        raise
+
+
+def delete(db: Session, problem_id: int) -> bool:
+    '''Delete a problem from the database.'''
+    logger.info(f"Service: Attempting to delete problem with id {problem_id}.")
+    db_problem = get_one(db, problem_id)
+    if not db_problem:
+        logger.warning(f"Service: Problem with id {problem_id} not found for deletion.")
+        return False
+    
+    try:
+        db.delete(db_problem)
+        db.commit()
+        logger.info(f"Service: Successfully deleted problem with id {problem_id}.")
+        return True
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Service: Database error occurerred during problem deletion (id: {problem_id}): {e}", exc_info=True)
+        raise SQLAlchemyError(f"Database error deleting problem: {e}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Service: Unexpected error during problem deletion (id: {problem_id}): {e}", exc_info=True)
+        raise
+
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/services/user.py ---
+import logging
+from passlib.context import CryptContext
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
+from fastapi import HTTPException, status
+
+from ..models.user import User as DBUser
+from ..schemas.user import UserCreate, UserUpdate
+
+logger = logging.getLogger(__name__)
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def get_password_hash(password: str):
+    return pwd_context.hash(password)
+
+def verify_password(plain_password: str, hashed_password: str):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def authenticate_user(db: Session, email: str, password: str):
+    user = db.query(DBUser).filter(DBUser.email == email).first()
+    if not user or not verify_password(password, user.password):
+        return None
+    return user
+
+def create(db: Session, user: UserCreate) -> DBUser:
+    logger.info("Service: Creating new user.")
+    hashed_pw = get_password_hash(user.password)
+    db_user = DBUser(
+        email=user.email,
+        password=hashed_pw,
+        name=user.name,
+        surname=user.surname
+    )
+    try:
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+        logger.info(f"Service: Successfully created user with id {db_user.id}")
+        return db_user
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Service: DB error during user creation: {e}", exc_info=True)
+        raise
+
+
+def get_all(db: Session):
+    logger.info("Service: Fetching all users.")
+    return db.query(DBUser).all()
+
+def get_one(db: Session, user_id: int):
+    logger.info(f"Service: Fetching user with id {user_id}.")
+    return db.query(DBUser).filter(DBUser.id == user_id).first()
+
+def delete(db: Session, user_id: int) -> bool:
+    logger.info(f"Service: Attempting to delete user with id {user_id}.")
+    db_user = get_one(db, user_id)
+    if not db_user:
+        logger.warning(f"Service: User with id {user_id} not found for deletion.")
+        return False
+    try:
+        db.delete(db_user)
+        db.commit()
+        logger.info(f"Service: Successfully deleted user with id {user_id}.")
+        return True
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Service: DB error during deletion: {e}", exc_info=True)
+        raise
+
+def update(db: Session, user_id: int, user_update: UserUpdate) -> DBUser | None:
+    logger.info(f"Service: Attempting to update user with id {user_id}")
+    db_user = get_one(db, user_id)
+    if not db_user:
+        logger.warning(f"Service: User with id {user_id} not found for update.")
+        return None
+
+    try:
+        db_user.email = user_update.email
+        db_user.password = get_password_hash(user_update.password)
+        db_user.name = user_update.name
+        db_user.surname = user_update.surname
+        db.commit()
+        db.refresh(db_user)
+        logger.info(f"Service: Successfully updated user with id {user_id}")
+        return db_user
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Service: DB error during update of user {user_id}: {e}", exc_info=True)
+        raise
+
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: server/services/__init__.py ---
+
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: tests/backend/conftest.py ---
+# tests/backend/conftest.py
+
+# --- Add these lines at the top ---
+import sys
+import os
+
+# Calculate the project root directory (which is two levels up from this file)
+# os.path.dirname(__file__) -> tests/backend
+# os.path.join(..., '..') -> tests/
+# os.path.join(..., '..', '..') -> skola-matematike/ (project root)
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+
+# Add the project root to the Python path if it's not already there
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+# --- End of added lines ---
+
+# Now the rest of your imports should work
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from server.main import app # This import should now succeed
+from server.database import Base, get_db
+from server.models import problem, problemset, problemset_problems # Ensure models are imported
+
+# --- Test Database Setup ---
+# (Keep the rest of the file as it was)
+SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool
+)
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+@pytest.fixture(scope="function")
+def test_db():
+    Base.metadata.create_all(bind=engine)
+    db = TestingSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+        Base.metadata.drop_all(bind=engine)
+
+@pytest.fixture(scope="function")
+def client(test_db):
+    def override_get_db():
+        try:
+            yield test_db
+        finally:
+            test_db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: tests/backend/test_problemsets_api.py ---
+# tests/backend/test_problemsets_api.py
+
+import pytest 
+from fastapi import status 
+
+# Test Data
+VALID_PROBLEMSET_DATA_1 = {
+    "title": "Ljetni Kamp Algebra 1",
+    "type": "predavanje",
+    "part_of": "ljetni kamp",
+    "group_name": "pocetna"
+}
+
+VALID_PROBLEMSET_DATA_2 = {
+    "title": "Skola Mate Kombinatorika Vjezbe",
+    "type": "vjezbe",
+    "part_of": "skola matematike",
+    "group_name": "napredna"
+}
+
+UPDATE_PROBLEMSET_DATA = {
+    "title": "Ljetni Kamp Algebra 1 - Updated",
+    "type": "predavanje-updated", 
+    "part_of": "ljetni kamp 2024", 
+    "group_name": "pocetna-revised" 
+}
+
+INVALID_PROBLEMSET_DATA_MISSING_FIELD = {
+    "type": "predavanje",
+    "part_of": "ljetni kamp",
+    "group_name": "pocetna"
+}
+
+# Helper function to create a problem
+def create_problem(client, latex_text="Test Problem", category="A"):
+    problem_data = {"latex_text": latex_text, "category": category}
+    response = client.post("/problems/", json=problem_data)
+    assert response.status_code == status.HTTP_201_CREATED
+    return response.json()
+
+# Helper function to create a problemset
+def create_problemset(client, data=None):
+    if data is None:
+        data = VALID_PROBLEMSET_DATA_1
+    response = client.post("/problemsets/", json=data)
+    assert response.status_code == status.HTTP_201_CREATED
+    return response.json()
+
+# Helper function to add a problem to a problemset (using the endpoint)
+def link_problem_to_problemset(client, ps_id, p_id, position=None):
+    url = f"/problemsets/{ps_id}/problems/{p_id}"
+    if position is not None:
+        url += f"?position={position}"
+    response = client.post(url)
+    assert response.status_code == status.HTTP_201_CREATED
+    return response.json()
+
+
+def assert_problem_order(client, ps_id, expected_p_ids):
+    response = client.get(f"/problemsets/{ps_id}")
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert len(data["problems"]) == len(expected_p_ids)
+    # Sort fetched problems by position
+    sorted_problems = sorted(data["problems"], key=lambda p: p["position"])
+    # Extract IDs in order
+    actual_p_ids = [p["problem"]["id"] for p in sorted_problems]
+    # Check positions are contiguous and match expected IDs
+    for i, p_id in enumerate(expected_p_ids):
+        assert sorted_problems[i]["problem"]["id"] == p_id
+        assert sorted_problems[i]["position"] == i + 1
+    assert actual_p_ids == expected_p_ids
+
+
+# --- Existing CRUD Test Functions ---
+def test_create_problemset_success(client):
+    response = client.post("/problemsets/", json=VALID_PROBLEMSET_DATA_1)
+    assert response.status_code == status.HTTP_201_CREATED
+    data = response.json()
+    assert data["title"] == VALID_PROBLEMSET_DATA_1["title"]
+    assert data["type"] == VALID_PROBLEMSET_DATA_1["type"]
+    assert data["part_of"] == VALID_PROBLEMSET_DATA_1["part_of"]
+    assert data["group_name"] == VALID_PROBLEMSET_DATA_1["group_name"]
+    assert "id" in data
+    assert isinstance(data["id"], int) # Check ID is present and an integer
+    assert "problems" in data # Check problems list exists
+    assert isinstance(data["problems"], list) # Check it's a list
+    assert len(data["problems"]) == 0 # Should be empty on creation
+
+def test_create_problemset_missing_required_field(client):
+    response = client.post("/problemsets/", json=INVALID_PROBLEMSET_DATA_MISSING_FIELD)
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+def test_create_problemset_optional_field_missing(client):
+    data_no_group = VALID_PROBLEMSET_DATA_1.copy()
+    del data_no_group["group_name"]
+    response = client.post("/problemsets/", json=data_no_group)
+    assert response.status_code == status.HTTP_201_CREATED
+    data = response.json()
+    assert data["title"] == data_no_group["title"]
+    assert data["type"] == data_no_group["type"]
+    assert data["part_of"] == data_no_group["part_of"]
+    assert data["group_name"] is None # Verify the optional field is None
+    assert "id" in data
+
+def test_read_all_problemsets_empty(client):
+    response = client.get("/problemsets/")
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == []
+
+def test_read_all_problemsets_with_data(client):
+    # Create a couple of problemsets
+    ps1 = create_problemset(client, VALID_PROBLEMSET_DATA_1)
+    ps2 = create_problemset(client, VALID_PROBLEMSET_DATA_2)
+
+    response = client.get("/problemsets/")
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert len(data) == 2
+    # Check titles and IDs to ensure different items were returned
+    ids = {item["id"] for item in data}
+    titles = {item["title"] for item in data}
+    assert ps1["id"] in ids
+    assert ps2["id"] in ids
+    assert VALID_PROBLEMSET_DATA_1["title"] in titles
+    assert VALID_PROBLEMSET_DATA_2["title"] in titles
+    # Check structure of one item
+    assert "type" in data[0]
+    assert "part_of" in data[0]
+    assert "group_name" in data[0]
+    assert "problems" in data[0]
+
+def test_read_problemset_not_found(client):
+    response = client.get("/problemsets/999") 
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+def test_read_problemset_success(client):
+    created_ps = create_problemset(client)
+    problemset_id = created_ps["id"]
+
+    response = client.get(f"/problemsets/{problemset_id}")
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["id"] == problemset_id
+    assert data["title"] == VALID_PROBLEMSET_DATA_1["title"]
+    assert data["type"] == VALID_PROBLEMSET_DATA_1["type"]
+    assert data["part_of"] == VALID_PROBLEMSET_DATA_1["part_of"]
+    assert data["group_name"] == VALID_PROBLEMSET_DATA_1["group_name"]
+    assert "problems" in data
+    assert isinstance(data["problems"], list)
+    assert len(data["problems"]) == 0 # No problems added yet
+
+def test_update_problemset_not_found(client):
+    response = client.put("/problemsets/999", json=UPDATE_PROBLEMSET_DATA)
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+def test_update_problemset_success(client):
+    created_ps = create_problemset(client)
+    problemset_id = created_ps["id"]
+
+    update_response = client.put(f"/problemsets/{problemset_id}", json=UPDATE_PROBLEMSET_DATA)
+    assert update_response.status_code == status.HTTP_200_OK
+    updated_data = update_response.json()
+    assert updated_data["id"] == problemset_id
+    assert updated_data["title"] == UPDATE_PROBLEMSET_DATA["title"]
+    assert updated_data["type"] == UPDATE_PROBLEMSET_DATA["type"]
+    assert updated_data["part_of"] == UPDATE_PROBLEMSET_DATA["part_of"]
+    assert updated_data["group_name"] == UPDATE_PROBLEMSET_DATA["group_name"]
+    assert "problems" in updated_data # Should still have problems list
+
+    # Verify by reading again
+    get_response = client.get(f"/problemsets/{problemset_id}")
+    assert get_response.status_code == status.HTTP_200_OK
+    verify_data = get_response.json()
+    assert verify_data["title"] == UPDATE_PROBLEMSET_DATA["title"]
+    assert verify_data["type"] == UPDATE_PROBLEMSET_DATA["type"]
+    assert verify_data["part_of"] == UPDATE_PROBLEMSET_DATA["part_of"]
+    assert verify_data["group_name"] == UPDATE_PROBLEMSET_DATA["group_name"]
+
+def test_update_problemset_invalid_data(client):
+    created_ps = create_problemset(client)
+    problemset_id = created_ps["id"]
+    invalid_update_data = UPDATE_PROBLEMSET_DATA.copy()
+    del invalid_update_data["title"]
+    update_response = client.put(f"/problemsets/{problemset_id}", json=invalid_update_data)
+    assert update_response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+def test_delete_problemset_not_found(client):
+    response = client.delete("/problemsets/999")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+def test_delete_problemset_success(client):
+    created_ps = create_problemset(client)
+    problemset_id = created_ps["id"]
+    delete_response = client.delete(f"/problemsets/{problemset_id}")
+    assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+    get_response = client.get(f"/problemsets/{problemset_id}")
+    assert get_response.status_code == status.HTTP_404_NOT_FOUND
+
+def test_read_all_problemsets_returns_list(client):
+     response = client.get("/problemsets/")
+     assert response.status_code == status.HTTP_200_OK
+     assert isinstance(response.json(), list)
+
+# --- Tests for Adding/Removing Problems (Associations) ---
+
+def test_add_problem_to_problemset_success_append_empty(client):
+    # Append to an empty list
+    ps = create_problemset(client)
+    problem = create_problem(client, "Problem to append")
+    ps_id = ps["id"]
+    p_id = problem["id"]
+
+    response = client.post(f"/problemsets/{ps_id}/problems/{p_id}") # No position param
+    assert response.status_code == status.HTTP_201_CREATED
+    link_data = response.json()
+    assert link_data["problem"]["id"] == p_id
+    assert link_data["position"] == 1
+    assert_problem_order(client, ps_id, [p_id])
+
+def test_add_problem_to_problemset_success_append_non_empty(client):
+    # Append to a list with one item
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p2 = create_problem(client, "Problem 2")
+    ps_id = ps["id"]
+    p1_id, p2_id = p1["id"], p2["id"]
+
+    link_problem_to_problemset(client, ps_id, p1_id) # Adds p1 at pos 1
+
+    response = client.post(f"/problemsets/{ps_id}/problems/{p2_id}") # Append p2
+    assert response.status_code == status.HTTP_201_CREATED
+    link_data = response.json()
+    assert link_data["problem"]["id"] == p2_id
+    assert link_data["position"] == 2 # Should append to pos 2
+    assert_problem_order(client, ps_id, [p1_id, p2_id])
+
+
+def test_add_problem_to_problemset_insert_at_beginning(client):
+    # Arrange: ps with p1(pos1)
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p2 = create_problem(client, "Problem 2 - New First")
+    ps_id = ps["id"]
+    p1_id, p2_id = p1["id"], p2["id"]
+    link_problem_to_problemset(client, ps_id, p1_id) # p1 is at pos 1
+
+    # Act: Insert p2 at position 1
+    response = client.post(f"/problemsets/{ps_id}/problems/{p2_id}?position=1")
+    assert response.status_code == status.HTTP_201_CREATED
+    link_data = response.json()
+    assert link_data["problem"]["id"] == p2_id
+    assert link_data["position"] == 1
+
+    # Assert: p2 is pos 1, p1 is pos 2
+    assert_problem_order(client, ps_id, [p2_id, p1_id])
+
+def test_add_problem_to_problemset_insert_in_middle(client):
+    # Arrange: ps with p1(pos1), p3(pos2)
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p2 = create_problem(client, "Problem 2 - New Middle")
+    p3 = create_problem(client, "Problem 3")
+    ps_id = ps["id"]
+    p1_id, p2_id, p3_id = p1["id"], p2["id"], p3["id"]
+    link_problem_to_problemset(client, ps_id, p1_id) # p1 pos 1
+    link_problem_to_problemset(client, ps_id, p3_id) # p3 pos 2
+
+    # Act: Insert p2 at position 2
+    response = client.post(f"/problemsets/{ps_id}/problems/{p2_id}?position=2")
+    assert response.status_code == status.HTTP_201_CREATED
+    link_data = response.json()
+    assert link_data["problem"]["id"] == p2_id
+    assert link_data["position"] == 2
+
+    # Assert: p1 is pos 1, p2 is pos 2, p3 is pos 3
+    assert_problem_order(client, ps_id, [p1_id, p2_id, p3_id])
+
+def test_add_problem_to_problemset_insert_at_end_explicit_position(client):
+    # Arrange: ps with p1(pos1)
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p2 = create_problem(client, "Problem 2 - New End")
+    ps_id = ps["id"]
+    p1_id, p2_id = p1["id"], p2["id"]
+    link_problem_to_problemset(client, ps_id, p1_id) # p1 pos 1
+
+    # Act: Insert p2 at position 2 (which is the end)
+    response = client.post(f"/problemsets/{ps_id}/problems/{p2_id}?position=2")
+    assert response.status_code == status.HTTP_201_CREATED
+    link_data = response.json()
+    assert link_data["problem"]["id"] == p2_id
+    assert link_data["position"] == 2
+
+    # Assert: p1 is pos 1, p2 is pos 2
+    assert_problem_order(client, ps_id, [p1_id, p2_id])
+
+def test_add_problem_to_problemset_insert_at_position_greater_than_size(client):
+    # Arrange: ps with p1(pos1)
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p2 = create_problem(client, "Problem 2 - Far Position")
+    ps_id = ps["id"]
+    p1_id, p2_id = p1["id"], p2["id"]
+    link_problem_to_problemset(client, ps_id, p1_id) # p1 pos 1
+
+    # Act: Insert p2 at position 5 (greater than current size + 1)
+    # The current service logic should handle this by shifting from pos 5 onwards
+    # (which means no shift needed here) and inserting at pos 5.
+    # If strict validation is added later to prevent gaps, this test would change.
+    response = client.post(f"/problemsets/{ps_id}/problems/{p2_id}?position=5")
+    assert response.status_code == status.HTTP_201_CREATED
+    link_data = response.json()
+    assert link_data["problem"]["id"] == p2_id
+    assert link_data["position"] == 5
+
+    # Assert: p1 is pos 1, p2 is pos 5 (assuming no gap filling)
+    # We cannot use assert_problem_order directly here due to the gap
+    get_response = client.get(f"/problemsets/{ps_id}")
+    assert get_response.status_code == status.HTTP_200_OK
+    data = get_response.json()
+    assert len(data["problems"]) == 2
+    problems_map = {p["problem"]["id"]: p["position"] for p in data["problems"]}
+    assert problems_map[p1_id] == 1
+    assert problems_map[p2_id] == 5
+
+
+def test_add_problem_to_problemset_insert_at_invalid_position_zero(client):
+    ps = create_problemset(client)
+    problem = create_problem(client)
+    ps_id = ps["id"]
+    p_id = problem["id"]
+
+    response = client.post(f"/problemsets/{ps_id}/problems/{p_id}?position=0")
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY # FastAPI validation for ge=1
+
+def test_add_problem_to_problemset_insert_at_invalid_position_negative(client):
+    ps = create_problemset(client)
+    problem = create_problem(client)
+    ps_id = ps["id"]
+    p_id = problem["id"]
+
+    response = client.post(f"/problemsets/{ps_id}/problems/{p_id}?position=-1")
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY # FastAPI validation for ge=1
+
+def test_add_problem_to_problemset_non_existent_problemset(client):
+    problem = create_problem(client)
+    p_id = problem["id"]
+    response = client.post(f"/problemsets/9999/problems/{p_id}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+def test_add_problem_to_problemset_non_existent_problem(client):
+    ps = create_problemset(client)
+    ps_id = ps["id"]
+    response = client.post(f"/problemsets/{ps_id}/problems/9999")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+def test_add_problem_to_problemset_already_linked(client):
+    ps = create_problemset(client)
+    problem = create_problem(client)
+    ps_id = ps["id"]
+    p_id = problem["id"]
+    client.post(f"/problemsets/{ps_id}/problems/{p_id}") 
+    response = client.post(f"/problemsets/{ps_id}/problems/{p_id}") 
+    assert response.status_code == status.HTTP_409_CONFLICT
+
+def test_remove_problem_from_problemset_success_middle_element_shifts(client):
+    # Arrange: Create ps, p1, p2, p3. Link p1(pos1), p2(pos2), p3(pos3)
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p2 = create_problem(client, "Problem 2")
+    p3 = create_problem(client, "Problem 3")
+    ps_id = ps["id"]
+    p1_id, p2_id, p3_id = p1["id"], p2["id"], p3["id"]
+
+    link_problem_to_problemset(client, ps_id, p1_id) # pos 1
+    link_problem_to_problemset(client, ps_id, p2_id) # pos 2
+    link_problem_to_problemset(client, ps_id, p3_id) # pos 3
+
+    # Act: Delete the middle problem (p2 at pos 2)
+    response = client.delete(f"/problemsets/{ps_id}/problems/{p2_id}")
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    # Assert: Verify p1 is pos 1, p3 is now pos 2
+    ps_response = client.get(f"/problemsets/{ps_id}")
+    assert ps_response.status_code == status.HTTP_200_OK
+    ps_data = ps_response.json()
+    assert len(ps_data["problems"]) == 2
+
+    # Sort results by position for reliable assertion
+    sorted_problems = sorted(ps_data["problems"], key=lambda x: x["position"])
+
+    assert sorted_problems[0]["problem"]["id"] == p1_id
+    assert sorted_problems[0]["position"] == 1
+    assert sorted_problems[1]["problem"]["id"] == p3_id
+    assert sorted_problems[1]["position"] == 2 # Position shifted from 3 to 2
+
+def test_remove_problem_from_problemset_success_first_element_shifts(client):
+    # Arrange: Create ps, p1, p2, p3. Link p1(pos1), p2(pos2), p3(pos3)
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p2 = create_problem(client, "Problem 2")
+    p3 = create_problem(client, "Problem 3")
+    ps_id = ps["id"]
+    p1_id, p2_id, p3_id = p1["id"], p2["id"], p3["id"]
+
+    link_problem_to_problemset(client, ps_id, p1_id) # pos 1
+    link_problem_to_problemset(client, ps_id, p2_id) # pos 2
+    link_problem_to_problemset(client, ps_id, p3_id) # pos 3
+
+    # Act: Delete the first problem (p1 at pos 1)
+    response = client.delete(f"/problemsets/{ps_id}/problems/{p1_id}")
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    # Assert: Verify p2 is pos 1, p3 is pos 2
+    ps_response = client.get(f"/problemsets/{ps_id}")
+    assert ps_response.status_code == status.HTTP_200_OK
+    ps_data = ps_response.json()
+    assert len(ps_data["problems"]) == 2
+
+    sorted_problems = sorted(ps_data["problems"], key=lambda x: x["position"])
+
+    assert sorted_problems[0]["problem"]["id"] == p2_id
+    assert sorted_problems[0]["position"] == 1 # Position shifted from 2 to 1
+    assert sorted_problems[1]["problem"]["id"] == p3_id
+    assert sorted_problems[1]["position"] == 2 # Position shifted from 3 to 2
+
+def test_remove_problem_from_problemset_success_last_element_no_shift(client):
+    # Arrange: Create ps, p1, p2. Link p1(pos1), p2(pos2)
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p2 = create_problem(client, "Problem 2")
+    ps_id = ps["id"]
+    p1_id, p2_id = p1["id"], p2["id"]
+
+    link_problem_to_problemset(client, ps_id, p1_id) # pos 1
+    link_problem_to_problemset(client, ps_id, p2_id) # pos 2
+
+    # Act: Delete the last problem (p2 at pos 2)
+    response = client.delete(f"/problemsets/{ps_id}/problems/{p2_id}")
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    # Assert: Verify p1 is still pos 1
+    ps_response = client.get(f"/problemsets/{ps_id}")
+    assert ps_response.status_code == status.HTTP_200_OK
+    ps_data = ps_response.json()
+    assert len(ps_data["problems"]) == 1
+
+    assert ps_data["problems"][0]["problem"]["id"] == p1_id
+    assert ps_data["problems"][0]["position"] == 1 # Position remains unchanged
+
+def test_remove_problem_from_problemset_success_only_element(client):
+    # Arrange: Create ps, p1. Link p1(pos1)
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    ps_id = ps["id"]
+    p1_id = p1["id"]
+
+    link_problem_to_problemset(client, ps_id, p1_id) # pos 1
+
+    # Act: Delete the only problem
+    response = client.delete(f"/problemsets/{ps_id}/problems/{p1_id}")
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    # Assert: Verify problemset is empty
+    ps_response = client.get(f"/problemsets/{ps_id}")
+    assert ps_response.status_code == status.HTTP_200_OK
+    ps_data = ps_response.json()
+    assert len(ps_data["problems"]) == 0
+
+
+def test_remove_problem_from_problemset_not_linked(client):
+    ps = create_problemset(client)
+    problem = create_problem(client)
+    ps_id = ps["id"]
+    p_id = problem["id"]
+    response = client.delete(f"/problemsets/{ps_id}/problems/{p_id}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert "Problem association not found" in response.json()["detail"]
+
+def test_remove_problem_from_problemset_non_existent_problemset(client):
+    problem = create_problem(client)
+    p_id = problem["id"]
+    response = client.delete(f"/problemsets/9999/problems/{p_id}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert "Problem association not found" in response.json()["detail"]
+
+def test_remove_problem_from_problemset_non_existent_problem(client):
+    ps = create_problemset(client)
+    ps_id = ps["id"]
+    response = client.delete(f"/problemsets/{ps_id}/problems/9999")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert "Problem association not found" in response.json()["detail"]
+
+# --- NEW TESTS FOR REORDERING PROBLEMS ---
+
+def test_reorder_problems_success(client):
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p2 = create_problem(client, "Problem 2")
+    p3 = create_problem(client, "Problem 3")
+    ps_id = ps["id"]
+    
+    # Link in order 1, 2, 3 initially
+    link_problem_to_problemset(client, ps_id, p1["id"])
+    link_problem_to_problemset(client, ps_id, p2["id"])
+    link_problem_to_problemset(client, ps_id, p3["id"])
+    
+    new_order = [p3["id"], p1["id"], p2["id"]]
+    payload = {"problem_ids_ordered": new_order}
+    
+    response = client.put(f"/problemsets/{ps_id}/problems/order", json=payload)
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    
+    assert len(data["problems"]) == 3
+    assert data["problems"][0]["problem"]["id"] == p3["id"]
+    assert data["problems"][0]["position"] == 1
+    assert data["problems"][1]["problem"]["id"] == p1["id"]
+    assert data["problems"][1]["position"] == 2
+    assert data["problems"][2]["problem"]["id"] == p2["id"]
+    assert data["problems"][2]["position"] == 3
+    
+    # Verify by getting again
+    get_response = client.get(f"/problemsets/{ps_id}")
+    verify_data = get_response.json()
+    assert len(verify_data["problems"]) == 3
+    assert verify_data["problems"][0]["problem"]["id"] == p3["id"]
+    assert verify_data["problems"][0]["position"] == 1
+    assert verify_data["problems"][1]["problem"]["id"] == p1["id"]
+    assert verify_data["problems"][1]["position"] == 2
+    assert verify_data["problems"][2]["problem"]["id"] == p2["id"]
+    assert verify_data["problems"][2]["position"] == 3
+
+def test_reorder_problems_no_change(client):
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p2 = create_problem(client, "Problem 2")
+    ps_id = ps["id"]
+    
+    link_problem_to_problemset(client, ps_id, p1["id"]) # pos 1
+    link_problem_to_problemset(client, ps_id, p2["id"]) # pos 2
+    
+    new_order = [p1["id"], p2["id"]]
+    payload = {"problem_ids_ordered": new_order}
+    
+    response = client.put(f"/problemsets/{ps_id}/problems/order", json=payload)
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    
+    assert len(data["problems"]) == 2
+    assert data["problems"][0]["problem"]["id"] == p1["id"]
+    assert data["problems"][0]["position"] == 1
+    assert data["problems"][1]["problem"]["id"] == p2["id"]
+    assert data["problems"][1]["position"] == 2
+
+def test_reorder_problems_single_problem(client):
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    ps_id = ps["id"]
+    
+    link_problem_to_problemset(client, ps_id, p1["id"]) # pos 1
+    
+    new_order = [p1["id"]]
+    payload = {"problem_ids_ordered": new_order}
+    
+    response = client.put(f"/problemsets/{ps_id}/problems/order", json=payload)
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    
+    assert len(data["problems"]) == 1
+    assert data["problems"][0]["problem"]["id"] == p1["id"]
+    assert data["problems"][0]["position"] == 1
+
+def test_reorder_problems_empty_problemset(client):
+    ps = create_problemset(client)
+    ps_id = ps["id"]
+    
+    new_order = []
+    payload = {"problem_ids_ordered": new_order}
+    
+    response = client.put(f"/problemsets/{ps_id}/problems/order", json=payload)
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert len(data["problems"]) == 0
+
+def test_reorder_problems_problemset_not_found(client):
+    payload = {"problem_ids_ordered": [1, 2]}
+    response = client.put("/problemsets/9999/problems/order", json=payload)
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+def test_reorder_problems_mismatched_count_omitted(client):
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p2 = create_problem(client, "Problem 2")
+    ps_id = ps["id"]
+    
+    link_problem_to_problemset(client, ps_id, p1["id"])
+    link_problem_to_problemset(client, ps_id, p2["id"])
+    
+    new_order = [p1["id"]] # Omitting p2
+    payload = {"problem_ids_ordered": new_order}
+    
+    response = client.put(f"/problemsets/{ps_id}/problems/order", json=payload)
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "omitted from the new order" in response.json()["detail"]
+
+def test_reorder_problems_mismatched_count_added(client):
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p_extra = create_problem(client, "Extra Problem") # Not linked
+    ps_id = ps["id"]
+    
+    link_problem_to_problemset(client, ps_id, p1["id"])
+    
+    new_order = [p1["id"], p_extra["id"]] # Trying to add p_extra
+    payload = {"problem_ids_ordered": new_order}
+    
+    response = client.put(f"/problemsets/{ps_id}/problems/order", json=payload)
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    # The error might be about the problem not being in the set OR about the count mismatch
+    assert "not found in problemset" in response.json()["detail"] or "Mismatch in the number of problems" in response.json()["detail"]
+
+
+def test_reorder_problems_id_not_in_set(client):
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p_not_linked = create_problem(client, "Not Linked")
+    ps_id = ps["id"]
+    
+    link_problem_to_problemset(client, ps_id, p1["id"])
+    
+    new_order = [p_not_linked["id"]] # p_not_linked is not in the set
+    payload = {"problem_ids_ordered": new_order}
+    
+    response = client.put(f"/problemsets/{ps_id}/problems/order", json=payload)
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert f"Problem IDs {{{p_not_linked['id']}}} not found in problemset" in response.json()["detail"]
+
+def test_reorder_problems_duplicate_ids_in_order(client):
+    ps = create_problemset(client)
+    p1 = create_problem(client, "Problem 1")
+    p2 = create_problem(client, "Problem 2")
+    ps_id = ps["id"]
+    
+    link_problem_to_problemset(client, ps_id, p1["id"])
+    link_problem_to_problemset(client, ps_id, p2["id"])
+    
+    new_order = [p1["id"], p1["id"]] # Duplicate p1
+    payload = {"problem_ids_ordered": new_order}
+    
+    response = client.put(f"/problemsets/{ps_id}/problems/order", json=payload)
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Duplicate problem IDs provided" in response.json()["detail"]
+
+# --- KEEP Existing Tests (Lecture Data, PDF, etc.) ---
+# ... (rest of the existing tests remain) ...
+@pytest.mark.skip(reason="Requires specific DB setup for lecture data tests")
+def test_get_lecture_data_success(client, test_db):
+     problemset_id = 69 
+     response = client.get(f"/problemsets/{problemset_id}/lecture-data")
+     # ... assertions ...
+
+@pytest.mark.skip(reason="Requires specific DB setup for lecture data tests")
+def test_get_lecture_data_not_found_wrong_id(client):
+     response = client.get("/problemsets/999/lecture-data") 
+     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+@pytest.mark.skip(reason="Endpoint logic might have changed")
+def test_get_lecture_data_not_found_wrong_type(client, test_db):
+     problemset_id = 70
+     response = client.get(f"/problemsets/{problemset_id}/lecture-data")
+     # ... assertions ...
+
+def test_get_lecture_data_invalid_id_format(client):
+     response = client.get("/problemsets/invalid-id/lecture-data")
+     assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+
+--- START FILE: tests/backend/test_problems_api.py ---
+# tests/backend/test_problems_api.py
+
+from fastapi import status # Import status codes
+
+# Note: The 'client' fixture is automatically available from conftest.py
+
+# --- Test Data (Ensure these match ProblemBase fields) ---
+VALID_PROBLEM_DATA_1 = {
+    "latex_text": "Solve $x^2 - 4 = 0$.",
+    "category": "A", # This is required now in ProblemBase
+    "comments": "Simple quadratic equation",
+    # "latex_versions": None, # Only include if needed/testing
+    # "solution": None,       # Only include if needed/testing
+}
+
+VALID_PROBLEM_DATA_2 = {
+    "latex_text": "Prove that $\\sqrt{2}$ is irrational.",
+    "category": "N", # Required
+    "comments": "Proof by contradiction"
+}
+
+UPDATE_PROBLEM_DATA = {
+    "latex_text": "Solve $x^2 - 9 = 0$.",
+    "category": "A", # Required
+    "comments": "Updated comment",
+}
+
+PATCH_UPDATE_DATA_COMMENT_ONLY = {
+    "comments": "Partially updated comment only",
+}
+
+PATCH_UPDATE_DATA_CATEGORY_SOLUTION = {
+    "category": "G",
+    "solution": "The answer is 42.",
+}
+
+PATCH_UPDATE_DATA_VERSIONS = {
+    "latex_versions": ["Version 1", "Version 2"]
+}
+
+# --- Helper function ---
+def create_problem(client, data=None):
+    if data is None:
+        data = VALID_PROBLEM_DATA_1
+    response = client.post("/problems/", json=data)
+    assert response.status_code == status.HTTP_201_CREATED
+    return response.json()
+
+# --- Test Functions ---
+
+def test_create_problem_success(client):
+    response = client.post("/problems/", json=VALID_PROBLEM_DATA_1)
+    assert response.status_code == status.HTTP_201_CREATED
+    data = response.json()
+    assert data["latex_text"] == VALID_PROBLEM_DATA_1["latex_text"]
+    assert data["comments"] == VALID_PROBLEM_DATA_1["comments"]
+    assert data["category"] == VALID_PROBLEM_DATA_1["category"]
+    assert "id" in data
+
+def test_create_problem_missing_field(client):
+    invalid_data = VALID_PROBLEM_DATA_1.copy()
+    del invalid_data["latex_text"] # Example: remove a required field
+    response = client.post("/problems/", json=invalid_data)
+    # FastAPI/Pydantic validation should catch this
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+# Add more tests for invalid data types if needed
+
+def test_read_all_problems_empty(client):
+    response = client.get("/problems/")
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == []
+
+def test_read_all_problems_with_data(client):
+    # Create a problem first
+    client.post("/problems/", json=VALID_PROBLEM_DATA_1)
+    client.post("/problems/", json=VALID_PROBLEM_DATA_2)
+
+    response = client.get("/problems/")
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert len(data) == 2
+    assert data[0]["latex_text"] == VALID_PROBLEM_DATA_1["latex_text"]
+    assert data[1]["latex_text"] == VALID_PROBLEM_DATA_2["latex_text"]
+
+def test_read_problem_not_found(client):
+    response = client.get("/problems/999") # Assume 999 doesn't exist
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+def test_read_problem_success(client):
+    # Create a problem
+    create_response = client.post("/problems/", json=VALID_PROBLEM_DATA_1)
+    problem_id = create_response.json()["id"]
+
+    # Read it back
+    response = client.get(f"/problems/{problem_id}")
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["id"] == problem_id
+    assert data["latex_text"] == VALID_PROBLEM_DATA_1["latex_text"]
+    assert data["category"] == VALID_PROBLEM_DATA_1["category"]
+
+def test_update_problem_not_found(client):
+    response = client.put("/problems/999", json=UPDATE_PROBLEM_DATA)
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+def test_update_problem_success(client):
+    # Create a problem
+    create_response = client.post("/problems/", json=VALID_PROBLEM_DATA_1)
+    problem_id = create_response.json()["id"]
+
+    # Update it
+    update_response = client.put(f"/problems/{problem_id}", json=UPDATE_PROBLEM_DATA)
+    assert update_response.status_code == status.HTTP_200_OK
+    updated_data = update_response.json()
+    assert updated_data["id"] == problem_id
+    assert updated_data["latex_text"] == UPDATE_PROBLEM_DATA["latex_text"]
+    assert updated_data["comments"] == UPDATE_PROBLEM_DATA["comments"]
+    assert updated_data["category"] == UPDATE_PROBLEM_DATA["category"] # Should remain 'A'
+
+    # Verify by reading again
+    get_response = client.get(f"/problems/{problem_id}")
+    assert get_response.status_code == status.HTTP_200_OK
+    verify_data = get_response.json()
+    assert verify_data["latex_text"] == UPDATE_PROBLEM_DATA["latex_text"]
+    assert verify_data["comments"] == UPDATE_PROBLEM_DATA["comments"]
+
+def test_delete_problem_not_found(client):
+    response = client.delete("/problems/999")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+def test_delete_problem_success(client):
+    # Create a problem
+    create_response = client.post("/problems/", json=VALID_PROBLEM_DATA_1)
+    problem_id = create_response.json()["id"]
+
+    # Delete it
+    delete_response = client.delete(f"/problems/{problem_id}")
+    assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+
+    # Verify it's gone
+    get_response = client.get(f"/problems/{problem_id}")
+    assert get_response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_patch_problem_success_single_field(client):
+    # Arrange: Create a problem
+    created_problem = create_problem(client, VALID_PROBLEM_DATA_1)
+    problem_id = created_problem["id"]
+    original_latex = created_problem["latex_text"]
+    original_category = created_problem["category"]
+
+    # Act: Patch only the comments field
+    patch_response = client.patch(f"/problems/{problem_id}", json=PATCH_UPDATE_DATA_COMMENT_ONLY)
+
+    # Assert: Check status code and response body
+    assert patch_response.status_code == status.HTTP_200_OK
+    updated_data = patch_response.json()
+    assert updated_data["id"] == problem_id
+    assert updated_data["comments"] == PATCH_UPDATE_DATA_COMMENT_ONLY["comments"]
+    # Ensure other fields are unchanged
+    assert updated_data["latex_text"] == original_latex
+    assert updated_data["category"] == original_category
+    assert updated_data["solution"] is None
+    assert updated_data["latex_versions"] is None
+
+    # Assert: Verify by reading again
+    get_response = client.get(f"/problems/{problem_id}")
+    assert get_response.status_code == status.HTTP_200_OK
+    verify_data = get_response.json()
+    assert verify_data["comments"] == PATCH_UPDATE_DATA_COMMENT_ONLY["comments"]
+    assert verify_data["latex_text"] == original_latex
+
+def test_patch_problem_success_multiple_fields(client):
+    # Arrange: Create a problem
+    created_problem = create_problem(client, VALID_PROBLEM_DATA_1)
+    problem_id = created_problem["id"]
+    original_latex = created_problem["latex_text"]
+    original_comments = created_problem["comments"]
+
+    # Act: Patch category and solution
+    patch_response = client.patch(f"/problems/{problem_id}", json=PATCH_UPDATE_DATA_CATEGORY_SOLUTION)
+
+    # Assert: Check status code and response body
+    assert patch_response.status_code == status.HTTP_200_OK
+    updated_data = patch_response.json()
+    assert updated_data["id"] == problem_id
+    assert updated_data["category"] == PATCH_UPDATE_DATA_CATEGORY_SOLUTION["category"]
+    assert updated_data["solution"] == PATCH_UPDATE_DATA_CATEGORY_SOLUTION["solution"]
+    # Ensure other fields are unchanged
+    assert updated_data["latex_text"] == original_latex
+    assert updated_data["comments"] == original_comments
+    assert updated_data["latex_versions"] is None
+
+    # Assert: Verify by reading again
+    get_response = client.get(f"/problems/{problem_id}")
+    assert get_response.status_code == status.HTTP_200_OK
+    verify_data = get_response.json()
+    assert verify_data["category"] == PATCH_UPDATE_DATA_CATEGORY_SOLUTION["category"]
+    assert verify_data["solution"] == PATCH_UPDATE_DATA_CATEGORY_SOLUTION["solution"]
+    assert verify_data["latex_text"] == original_latex
+
+def test_patch_problem_success_latex_versions(client):
+    # Arrange: Create a problem
+    created_problem = create_problem(client, VALID_PROBLEM_DATA_1)
+    problem_id = created_problem["id"]
+
+    # Act: Patch latex_versions
+    patch_response = client.patch(f"/problems/{problem_id}", json=PATCH_UPDATE_DATA_VERSIONS)
+
+    # Assert: Check status code and response body
+    assert patch_response.status_code == status.HTTP_200_OK
+    updated_data = patch_response.json()
+    assert updated_data["id"] == problem_id
+    # Note: JSON fields might be returned as lists
+    assert isinstance(updated_data["latex_versions"], list)
+    assert updated_data["latex_versions"] == PATCH_UPDATE_DATA_VERSIONS["latex_versions"]
+
+    # Assert: Verify by reading again
+    get_response = client.get(f"/problems/{problem_id}")
+    assert get_response.status_code == status.HTTP_200_OK
+    verify_data = get_response.json()
+    assert verify_data["latex_versions"] == PATCH_UPDATE_DATA_VERSIONS["latex_versions"]
+
+
+def test_patch_problem_not_found(client):
+    response = client.patch("/problems/999", json=PATCH_UPDATE_DATA_COMMENT_ONLY)
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+def test_patch_problem_invalid_category(client):
+    # Arrange: Create a problem
+    created_problem = create_problem(client)
+    problem_id = created_problem["id"]
+
+    # Act: Attempt to patch with an invalid category
+    invalid_patch_data = {"category": "X"} # 'X' is not in CategoryLiteral
+    response = client.patch(f"/problems/{problem_id}", json=invalid_patch_data)
+
+    # Assert: FastAPI/Pydantic should reject it
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+def test_patch_problem_empty_payload(client):
+    # Arrange: Create a problem
+    created_problem = create_problem(client)
+    problem_id = created_problem["id"]
+
+    # Act: Send PATCH request with an empty JSON body
+    response = client.patch(f"/problems/{problem_id}", json={})
+
+    # Assert: Should be a bad request as no data was sent
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "No update data is provided in PATCH request." in response.json()["detail"]
+--- END FILE: {relative_path.replace(os.sep, '/')} ---
+

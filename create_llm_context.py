@@ -61,6 +61,8 @@ EXCLUDE_PATTERNS = [
 # Directories to completely skip during os.walk (more efficient)
 # Must be directory names, not patterns
 EXCLUDE_DIRS = {
+    "frontend",
+    "experiments",
     ".git",
     "node_modules",
     "vendor",
