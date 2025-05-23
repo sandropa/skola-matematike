@@ -26,8 +26,8 @@ function Predavaci() {
     `${name?.[0] || ''}${surname?.[0] || ''}`.toUpperCase();
 
   const handleAddLecturer = () => {
-    const novi = { name: newName, surname: newSurname, email: newEmail };
-    axios.post('http://localhost:8000/users', novi)
+    const novi = { name: newName, surname: newSurname, to_email: newEmail };
+    axios.post('http://localhost:8000/users/send-invite', novi)
       .then(() => {
         fetchLecturers();
         setOpenModal(false);

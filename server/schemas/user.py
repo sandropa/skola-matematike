@@ -25,3 +25,8 @@ class UserOut(BaseModel):
 
     class Config:
         orm_mode = True
+
+class InviteRequest(BaseModel):
+    to_email: str
+    name: str
+    surname: str
