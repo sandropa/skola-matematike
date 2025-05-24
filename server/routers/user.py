@@ -12,6 +12,12 @@ from server.dependencies import get_db
 import smtplib
 from fastapi import HTTPException
 from email.message import EmailMessage
+from passlib.context import CryptContext
+from pydantic import BaseModel, Field
+from server.schemas.user import CompleteInviteRequest
+
+
+
 
 from typing import List
 
@@ -84,7 +90,7 @@ def send_email(to_email: str, invite_id: str):
     msg['Subject'] = "Invite za kreiranje predavačkog profila na Školi matematike"
     msg['From'] = EMAIL_ADDRESS
     msg['To'] = to_email
-    msg.set_content(f"Klikom na link, dovršite registraciju, http://127.0.0.1:8000/users/accept-invite/{invite_id}")
+    msg.set_content(f"Pozdrav, Pozvani ste da se registrujete kao predavač na platformi Škola Matematike. Kliknite na link ispod da biste kreirali svoj nalog:, http://127.0.0.1:8000/users/accept-invite/{invite_id}")
 
     try:
         with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as smtp:
@@ -111,3 +117,38 @@ def send_invite(invite: InviteRequest, db: Session = Depends(get_db)):
     send_email(invite.to_email, new_invite.id)
 
     return {"message": f"Invitation sent and saved for {invite.to_email}"}
+
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def hash_password(password: str):
+    return pwd_context.hash(password)
+
+   
+   
+
+
+
+
+@router.post("/accept-invite/{invite_id}")
+def accept_invite(invite_id: int, request: CompleteInviteRequest, db: Session = Depends(get_db)):
+    invite = db.query(Invite).filter(Invite.id == invite_id).first()
+
+    if not invite:
+        raise HTTPException(status_code=404, detail="Pozivnica ne postoji")
+
+    existing_user = db.query(User).filter(User.email == invite.email).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Korisnik sa ovom email adresom već postoji")
+
+    new_user = User(
+        email=invite.email,
+        name=invite.name,
+        surname=invite.surname,
+        password=hash_password(request.password)
+    )
+
+    db.add(new_user)
+    db.commit()
+
+    return {"message": "Registracija uspešna!"}
