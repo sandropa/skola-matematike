@@ -11,7 +11,7 @@
 .login-card {
   display: flex;
   width: 1000px;
-  height: 500px; /* povećana visina */
+  height: 500px; 
   background-color: #ffffff;
   border-radius: 20px;
   overflow: hidden;
