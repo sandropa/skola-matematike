@@ -3,11 +3,21 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 
-from server.schemas.user import UserCreate, UserLogin, UserOut, UserUpdate
+from server.schemas.user import UserCreate, UserLogin, UserOut, UserUpdate, InviteRequest
 from server.services.auth import create_access_token
 from server.services import user as user_service
 from server.models.user import User
+from server.models.invite import Invite
 from server.dependencies import get_db
+import smtplib
+from fastapi import HTTPException
+from email.message import EmailMessage
+from passlib.context import CryptContext
+from pydantic import BaseModel, Field
+from server.schemas.user import CompleteInviteRequest
+
+
+
 
 from typing import List
 
@@ -69,3 +79,76 @@ def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get
     except Exception as e:
         logger.error(f"Router: Unexpected error during user update: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Unexpected error during update")
+
+EMAIL_ADDRESS = "hrmenager2025@gmail.com"
+EMAIL_PASSWORD = "fczv gsef gqyy oydb"
+EMAIL_HOST = "smtp.gmail.com"
+EMAIL_PORT = 587
+
+def send_email(to_email: str, invite_id: str):
+    msg = EmailMessage()
+    msg['Subject'] = "Invite za kreiranje predavačkog profila na Školi matematike"
+    msg['From'] = EMAIL_ADDRESS
+    msg['To'] = to_email
+    msg.set_content(f"Pozdrav, Pozvani ste da se registrujete kao predavač na platformi Škola Matematike. Kliknite na link ispod da biste kreirali svoj nalog:, http://127.0.0.1:8000/users/accept-invite/{invite_id}")
+
+    try:
+        with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as smtp:
+            smtp.starttls()
+            smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+            smtp.send_message(msg)
+    except Exception as e:
+        print("SMTP ERROR:", str(e))  # ili logger.error(...)
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
+
+
+@router.post("/send-invite")
+def send_invite(invite: InviteRequest, db: Session = Depends(get_db)):
+   
+    new_invite = Invite(
+        email=invite.to_email,
+        name=invite.name,
+        surname=invite.surname
+    )
+    db.add(new_invite)
+    db.commit()
+    db.refresh(new_invite)
+
+    send_email(invite.to_email, new_invite.id)
+
+    return {"message": f"Invitation sent and saved for {invite.to_email}"}
+
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def hash_password(password: str):
+    return pwd_context.hash(password)
+
+   
+   
+
+
+
+
+@router.post("/accept-invite/{invite_id}")
+def accept_invite(invite_id: int, request: CompleteInviteRequest, db: Session = Depends(get_db)):
+    invite = db.query(Invite).filter(Invite.id == invite_id).first()
+
+    if not invite:
+        raise HTTPException(status_code=404, detail="Pozivnica ne postoji")
+
+    existing_user = db.query(User).filter(User.email == invite.email).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Korisnik sa ovom email adresom već postoji")
+
+    new_user = User(
+        email=invite.email,
+        name=invite.name,
+        surname=invite.surname,
+        password=hash_password(request.password)
+    )
+
+    db.add(new_user)
+    db.commit()
+
+    return {"message": "Registracija uspešna!"}

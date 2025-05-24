@@ -41,3 +41,13 @@ CREATE TABLE users (
     name varchar(100),
     surname varchar(100)
 );
+
+
+
+CREATE TABLE invites (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    name VARCHAR(100),
+    surname VARCHAR(100),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);

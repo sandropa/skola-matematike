@@ -20,11 +20,9 @@ function Login() {
       const { access_token } = response.data;
       console.log(access_token)
 
-      // Čuvanje tokena lokalno
       localStorage.setItem('token', access_token);
 
-      // Redirect ili neka druga akcija
-      //window.location.href = '/dashboard';
+      
     } catch (err) {
       console.error('Login error:', err);
       setErrorMsg('Pogrešan email ili lozinka.');
