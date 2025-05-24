@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import './Login.css'; // koristi isti stil
+import './Login.css'; 
 
 function AcceptInvite() {
   const { inviteId } = useParams();
