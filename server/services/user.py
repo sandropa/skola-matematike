@@ -67,23 +67,42 @@ def delete(db: Session, user_id: int) -> bool:
         logger.error(f"Service: DB error during deletion: {e}", exc_info=True)
         raise
 
-def update(db: Session, user_id: int, user_update: UserUpdate) -> DBUser | None:
-    logger.info(f"Service: Attempting to update user with id {user_id}")
+def update_name_surname(db: Session, user_id: int, name: str, surname: str) -> DBUser | None:
+    logger.info(f"Service: Updating name and surname for user with id {user_id}")
     db_user = get_one(db, user_id)
     if not db_user:
-        logger.warning(f"Service: User with id {user_id} not found for update.")
+        logger.warning(f"Service: User with id {user_id} not found for name update.")
         return None
 
     try:
-        db_user.email = user_update.email
-        db_user.password = get_password_hash(user_update.password)
-        db_user.name = user_update.name
-        db_user.surname = user_update.surname
+        db_user.name = name
+        db_user.surname = surname
         db.commit()
         db.refresh(db_user)
-        logger.info(f"Service: Successfully updated user with id {user_id}")
+        logger.info(f"Service: Successfully updated name and surname for user {user_id}")
         return db_user
     except SQLAlchemyError as e:
         db.rollback()
-        logger.error(f"Service: DB error during update of user {user_id}: {e}", exc_info=True)
+        logger.error(f"Service: DB error during name update of user {user_id}: {e}", exc_info=True)
+        raise
+
+def update_password(db: Session, user_id: int, current_password: str, new_password: str) -> bool:
+    logger.info(f"Service: Attempting to update password for user with id {user_id}")
+    db_user = get_one(db, user_id)
+    if not db_user:
+        logger.warning(f"Service: User with id {user_id} not found for password update.")
+        return False
+
+    if not verify_password(current_password, db_user.password):
+        logger.warning(f"Service: Incorrect current password for user {user_id}")
+        return False
+
+    try:
+        db_user.password = get_password_hash(new_password)
+        db.commit()
+        logger.info(f"Service: Successfully updated password for user {user_id}")
+        return True
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Service: DB error during password update of user {user_id}: {e}", exc_info=True)
         raise

@@ -17,6 +17,15 @@ class UserUpdate(BaseModel):
     name: str
     surname: str
 
+class UserPersonalUpdate(BaseModel):
+    name: str
+    surname: str
+
+class PasswordUpdate(BaseModel):
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8)
+    confirm_password: str = Field(..., min_length=8)
+
 class UserOut(BaseModel):
     id: int
     email: EmailStr

@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 
-from server.schemas.user import UserCreate, UserLogin, UserOut, UserUpdate, InviteRequest
+from server.schemas.user import UserCreate, UserLogin, UserOut, UserPersonalUpdate, PasswordUpdate, InviteRequest
 from server.services.auth import create_access_token
 from server.services import user as user_service
 from server.models.user import User
@@ -41,7 +41,7 @@ def login(user_login: UserLogin, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=400, detail="Invalid credentials")
     token = create_access_token(data={"sub": user.email})
-    return {"access_token": token, "token_type": "bearer"}
+    return {"access_token": token, "token_type": "bearer", "user_id": user.id}
 
 @router.get("/", response_model=List[UserOut], summary="Get All Users")
 def read_all_users(db: Session = Depends(get_db)):
@@ -65,11 +65,16 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
     return None
 
-@router.put("/{user_id}", response_model=UserOut, summary="Update Existing User")
-def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get_db)):
+@router.put("/{user_id}", response_model=UserOut, summary="Update user's name and surname")
+def update_user(user_id: int, user_update: UserPersonalUpdate, db: Session = Depends(get_db)):
     logger.info(f"Router: Request received for PUT /users/{user_id}")
+
+    # Dozvoljene izmjene samo za name i surname
+    if hasattr(user_update, "password") and user_update.password:
+        raise HTTPException(status_code=400, detail="Password cannot be updated here.")
+
     try:
-        updated_user = user_service.update(db, user_id, user_update)
+        updated_user = user_service.update_name_surname(db, user_id, user_update.name, user_update.surname)
         if not updated_user:
             raise HTTPException(status_code=404, detail="User not found")
         return updated_user
@@ -79,6 +84,31 @@ def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get
     except Exception as e:
         logger.error(f"Router: Unexpected error during user update: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Unexpected error during update")
+
+
+@router.put("/{user_id}/password", summary="Change user's password")
+def update_password(user_id: int, payload: PasswordUpdate, db: Session = Depends(get_db)):
+    logger.info(f"Router: Request received for PUT /users/{user_id}/password")
+
+    if payload.new_password != payload.confirm_password:
+        raise HTTPException(status_code=400, detail="New passwords do not match.")
+
+    try:
+        success = user_service.update_password(
+            db=db,
+            user_id=user_id,
+            current_password=payload.current_password,
+            new_password=payload.new_password
+        )
+        if not success:
+            raise HTTPException(status_code=403, detail="Current password is incorrect or user not found.")
+        return {"message": "Password updated successfully"}
+    except SQLAlchemyError as e:
+        logger.error(f"Router: DB error during password update: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error during password update")
+    except Exception as e:
+        logger.error(f"Router: Unexpected error during password update: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Unexpected error during password update")
 
 EMAIL_ADDRESS = "hrmenager2025@gmail.com"
 EMAIL_PASSWORD = "fczv gsef gqyy oydb"
@@ -123,12 +153,6 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def hash_password(password: str):
     return pwd_context.hash(password)
-
-   
-   
-
-
-
 
 @router.post("/accept-invite/{invite_id}")
 def accept_invite(invite_id: int, request: CompleteInviteRequest, db: Session = Depends(get_db)):
