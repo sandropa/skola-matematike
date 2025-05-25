@@ -101,7 +101,7 @@ function Predavaci() {
                 </div>
                 <div className="user-info">
                   <h3 className="user-name">{lecturer.name} {lecturer.surname}</h3>
-                  <p className="user-location">{lecturer.email}</p>
+                  <p className="user-email">{lecturer.email}</p>
                   <div className="user-tags">
                     {lecturer.tags?.map((tag, index) => (
                       <span className="tag" key={index}>{tag}</span>

@@ -177,6 +177,12 @@
     transform: translateY(-4px);
     box-shadow: 0 6px 15px #1e6ca6;
   }
+  .user-email {
+  color: #1e293b; 
+  font-size: 14px;
+  margin-top: 4px;
+}
+
   
 
   @media (max-width: 1024px) {
