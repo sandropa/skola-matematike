@@ -28,7 +28,7 @@ function App() {
       <Routes>
         <Route path="/editor" element={<LatexEditor />} />
         <Route path="/lecture/:id" element={<LectureView />} />
-        <Route path="/profil" element={<UserProfile />} />
+        <Route path="/profil/:id" element={<UserProfile />} />
         <Route path="/login" element={<Login />} />
         <Route path='/pocetna' element={<PocetnaStranica />}/>
         <Route path='/predavaci' element={<Predavaci />}/>
