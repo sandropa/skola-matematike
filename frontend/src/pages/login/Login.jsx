@@ -62,8 +62,8 @@ function Login() {
 
           {errorMsg && <p className="error-msg">{errorMsg}</p>}
 
-          <div className="login-links">
-            <a href="#">Zaboravili ste lozinku?</a>
+         <div className="login-links">
+          <a href="/reset-password-request">Zaboravili ste lozinku?</a>
           </div>
         </div>
       </div>
