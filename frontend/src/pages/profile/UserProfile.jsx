@@ -133,7 +133,7 @@ function Profil() {
 
           <div className="user-info">
             <h2>{`${user.firstName} ${user.lastName}`}</h2>
-            <p className="user-email">{user.email}</p>
+            <p className="userEmail">{user.email}</p>
           </div>
         </div>
 
