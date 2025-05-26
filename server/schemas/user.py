@@ -1,5 +1,6 @@
 # server/schemas/user.py
 from pydantic import BaseModel, EmailStr,Field
+from pydantic import BaseModel, EmailStr
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -42,3 +43,10 @@ class InviteRequest(BaseModel):
     surname: str
 class CompleteInviteRequest(BaseModel):
     password: str = Field(min_length=6)
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+class PasswordResetConfirm(BaseModel):
+    token: str
+    new_password: str

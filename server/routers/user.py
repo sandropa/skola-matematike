@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 
-from server.schemas.user import UserCreate, UserLogin, UserOut, UserPersonalUpdate, PasswordUpdate, InviteRequest
+from server.schemas.user import UserCreate, UserLogin, UserOut, UserPersonalUpdate, PasswordUpdate, InviteRequest,PasswordResetConfirm, PasswordResetRequest
 from server.services.auth import create_access_token
 from server.services import user as user_service
 from server.models.user import User
@@ -15,8 +15,9 @@ from email.message import EmailMessage
 from passlib.context import CryptContext
 from pydantic import BaseModel, Field
 from server.schemas.user import CompleteInviteRequest
-
-
+from server.models.password_reset import PasswordReset
+import secrets
+from datetime import datetime, timedelta
 
 
 from typing import List
@@ -176,3 +177,54 @@ def accept_invite(invite_id: int, request: CompleteInviteRequest, db: Session = 
     db.commit()
 
     return {"message": "Registracija uspešna!"}
+
+def send_reset_email(to_email: str, reset_link: str):
+    msg = EmailMessage()
+    msg['Subject'] = "Reset lozinke - Škola matematike"
+    msg['From'] = EMAIL_ADDRESS
+    msg['To'] = to_email
+    msg.set_content(f"Pozdrav, Primili smo zahtjev za resetovanje Vaše lozinke na platformi Škola Matematike. Ako ste Vi pokrenuli ovaj zahtjev, kliknite na sljedeći link kako biste postavili novu lozinku:\n\n{reset_link}")
+
+    try:
+        with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as smtp:
+            smtp.starttls()
+            smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+            smtp.send_message(msg)
+    except Exception as e:
+        print("SMTP ERROR:", str(e))
+        raise HTTPException(status_code=500, detail=f"Slanje emaila nije uspjelo: {str(e)}")
+    
+@router.post("/password-reset-request")
+def request_password_reset(data: PasswordResetRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == data.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Korisnik ne postoji")
+
+    token = secrets.token_urlsafe(32)
+    expires = datetime.utcnow() + timedelta(hours=1)
+
+    reset = PasswordReset(user_id=user.id, token=token, expires_at=expires)
+    db.add(reset)
+    db.commit()
+
+    link = f"http://localhost:3000/reset-password?token={token}"
+    send_reset_email(user.email, link)
+
+    return {"message": "Email sa linkom za reset je poslan."}
+
+@router.post("/password-reset-confirm")
+def reset_password(data: PasswordResetConfirm, db: Session = Depends(get_db)):
+    reset = db.query(PasswordReset).filter(PasswordReset.token == data.token).first()
+
+    if not reset or reset.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Neispravan ili istekao token")
+
+    user = db.query(User).filter(User.id == reset.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Korisnik nije pronađen")
+
+    user.password = hash_password(data.new_password)
+    db.delete(reset)
+    db.commit()
+
+    return {"message": "Lozinka je uspješno resetovana."}
