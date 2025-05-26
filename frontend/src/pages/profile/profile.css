@@ -99,17 +99,10 @@
   margin-bottom: 8px;
 }
 
-.user-role {
-  font-size: 16px;
-  color: rgba(255, 255, 255, 0.9);
-  margin-bottom: 4px;
+.userEmail {
+  color: rgba(255, 255, 255, 0.9) !important;
 }
 
-.user-location {
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.8);
-  margin-bottom: 20px;
-}
 
 .user-stats {
   display: grid;
