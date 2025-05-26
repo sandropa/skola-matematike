@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from server.schemas.user import CompleteInviteRequest
 from server.models.password_reset import PasswordReset
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 
 from typing import List
@@ -207,7 +207,7 @@ def request_password_reset(data: PasswordResetRequest, db: Session = Depends(get
     db.add(reset)
     db.commit()
 
-    link = f"http://localhost:3000/reset-password?token={token}"
+    link = f"http://localhost:5173/reset-password?token={token}"
     send_reset_email(user.email, link)
 
     return {"message": "Email sa linkom za reset je poslan."}
@@ -216,7 +216,7 @@ def request_password_reset(data: PasswordResetRequest, db: Session = Depends(get
 def reset_password(data: PasswordResetConfirm, db: Session = Depends(get_db)):
     reset = db.query(PasswordReset).filter(PasswordReset.token == data.token).first()
 
-    if not reset or reset.expires_at < datetime.utcnow():
+    if not reset or reset.expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="Neispravan ili istekao token")
 
     user = db.query(User).filter(User.id == reset.user_id).first()

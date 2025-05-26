@@ -8,7 +8,8 @@ import UserProfile from "./pages/profile/UserProfile";
 import PocetnaStranica from './pages/pocetna/PocetnaStranica';
 import Predavaci from './pages/predavaci/Predavaci';
 import AcceptInvite from  './pages/login/AcceptInvite';
-
+import ResetPassword from  './pages/login/ResetPassword';
+import ResetPasswordRequest from  './pages/login/ResetPasswordRequest';
 import './App.css';
 import LatexEditor from './pages/LatexEditor';
 
@@ -34,6 +35,8 @@ function App() {
         <Route path='/predavaci' element={<Predavaci />}/>
         <Route path="/accept-invite/:inviteId" element={<AcceptInvite />} />
         <Route path="*" element={<div>404: Page Not Found</div>} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/forgot-password" element={<ResetPasswordRequest />} />
       </Routes>
     </div>
   );
