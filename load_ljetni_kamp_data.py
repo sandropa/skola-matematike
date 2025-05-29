@@ -7,6 +7,10 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Any
 
+import server.models.user # Or e.g., from server.models.user import User
+import server.models.password_reset # Or e.g., from server.models.password_reset import PasswordReset
+
+
 # Add the 'server' directory to the Python path to allow imports
 # like 'from server.database import ...'
 project_root = Path(__file__).resolve().parent
