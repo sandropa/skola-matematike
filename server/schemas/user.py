@@ -1,4 +1,5 @@
 # server/schemas/user.py
+from pydantic import BaseModel, EmailStr,Field
 from pydantic import BaseModel, EmailStr
 
 class UserCreate(BaseModel):
@@ -17,6 +18,15 @@ class UserUpdate(BaseModel):
     name: str
     surname: str
 
+class UserPersonalUpdate(BaseModel):
+    name: str
+    surname: str
+
+class PasswordUpdate(BaseModel):
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8)
+    confirm_password: str = Field(..., min_length=8)
+
 class UserOut(BaseModel):
     id: int
     email: EmailStr
@@ -25,3 +35,18 @@ class UserOut(BaseModel):
 
     class Config:
         orm_mode = True
+
+class InviteRequest(BaseModel):
+    to_email: str
+    name: str
+    
+    surname: str
+class CompleteInviteRequest(BaseModel):
+    password: str = Field(min_length=6)
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+class PasswordResetConfirm(BaseModel):
+    token: str
+    new_password: str

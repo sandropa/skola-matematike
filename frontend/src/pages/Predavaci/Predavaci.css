@@ -1,0 +1,224 @@
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    color: #333;
+    background-color: #f5f7fa;
+  }
+  
+
+  .users-container {
+    width: 100%;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 20px;
+  }
+  
+  .users-content {
+    width: 100%;
+    max-width: 1200px;
+    background-color: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+    padding: 40px;
+    position: relative;
+  }
+  
+
+  .users-title {
+    font-size: 32px;
+    font-weight: 600;
+    color: #334155;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  
+
+  .users-search-and-filters {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 40px;
+    gap: 20px;
+  }
+  
+  .search-container {
+    position: relative;
+    width: 250px;
+  }
+  
+  .search-icon {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #94a3b8;
+  }
+  
+  .search-input {
+    width: 100%;
+    padding: 12px 12px 12px 40px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  
+  .search-input:focus {
+    border-color: #60a5fa;
+  }
+  
+  .filters-container {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  
+  .filter-button {
+    padding: 8px 16px;
+    background: none;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    color:#1e6ca6;
+    transition: background-color 0.2s, color 0.2s;
+  }
+  
+  .filter-button:hover {
+    background-color: #f1f5f9;
+  }
+  
+  .filter-button.active {
+    background-color: #1e6ca6;
+    color: white;
+  }
+  
+
+  .users-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+  }
+  
+  .user-card {
+    border-radius: 12px;
+    padding: 24px;
+    background-color: white;
+    border: 1px solid #e2e8f0;
+    transition: transform 0.2s, box-shadow 0.2s;
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  
+  .user-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.05);
+  }
+  
+  .user-avatar {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  
+  .user-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  
+  .user-info {
+    flex-grow: 1;
+  }
+  
+  .user-name {
+    font-size: 18px;
+    font-weight: 600;
+    color: #334155;
+    margin-bottom: 4px;
+  }
+  
+
+  
+ 
+
+  .scroll-to-top {
+    position: fixed;
+    bottom: 30px;
+    right: 30px;
+    width: 50px;
+    height: 50px;
+    background-color:#1e6ca6;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    cursor: pointer;
+    box-shadow: 0 4px 10px #1e6ca6;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  
+  .scroll-to-top:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 6px 15px #1e6ca6;
+  }
+  .user-email {
+  color: #1e293b; 
+  font-size: 14px;
+  margin-top: 4px;
+}
+
+  
+
+  @media (max-width: 1024px) {
+    .users-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  
+  @media (max-width: 768px) {
+    .users-content {
+      padding: 24px;
+    }
+    
+    .users-search-and-filters {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    
+    .search-container {
+      width: 100%;
+    }
+    
+    .filters-container {
+      width: 100%;
+      overflow-x: auto;
+      padding-bottom: 8px;
+      justify-content: flex-start;
+    }
+  }
+  
+  @media (max-width: 640px) {
+    .users-grid {
+      grid-template-columns: 1fr;
+    }
+    
+    .user-card {
+      padding: 16px;
+    }
+  }

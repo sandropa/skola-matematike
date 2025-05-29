@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from "react-router-dom";
 import axios from 'axios';
 import './Login.css';
 
@@ -6,6 +7,8 @@ function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  
+  const navigate = useNavigate();
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -17,14 +20,14 @@ function Login() {
         password,
       });
 
-      const { access_token } = response.data;
+      const { access_token, user_id } = response.data;
       console.log(access_token)
 
-      // Čuvanje tokena lokalno
       localStorage.setItem('token', access_token);
+      localStorage.setItem('user_id', user_id);
+      navigate(`/profil/${user_id}`)
 
-      // Redirect ili neka druga akcija
-      //window.location.href = '/dashboard';
+      
     } catch (err) {
       console.error('Login error:', err);
       setErrorMsg('Pogrešan email ili lozinka.');
@@ -59,8 +62,8 @@ function Login() {
 
           {errorMsg && <p className="error-msg">{errorMsg}</p>}
 
-          <div className="login-links">
-            <a href="#">Zaboravili ste lozinku?</a>
+         <div className="login-links">
+          <a href="/forgot-password">Zaboravili ste lozinku?</a>
           </div>
         </div>
       </div>

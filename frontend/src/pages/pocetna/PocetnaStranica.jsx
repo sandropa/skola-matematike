@@ -43,7 +43,15 @@ export default function Pocetna() {
 
         </div>
         <div className="navbar-right">
-          <div className="navbar-item">Predavači</div>
+        <Link
+  to="/predavaci"
+  className="navbar-item"
+  style={{ textDecoration: 'none', color: 'inherit' }}
+>
+  Predavači
+</Link>
+
+
         </div>
       </nav>
 
