@@ -1,62 +1,148 @@
+-- DROP SEQUENCE invites_id_seq;
 
-CREATE TABLE problems (
-    id SERIAL PRIMARY KEY,
-    latex_text TEXT NOT NULL,
-    comments TEXT,
-    latex_versions TEXT[], -- PostgreSQL array for multiple versions
-    solution TEXT,
-    category VARCHAR(1) NOT NULL CHECK (category IN ('A', 'N', 'G', 'C'))
-);
+CREATE SEQUENCE invites_id_seq
+	INCREMENT BY 1
+	MINVALUE 1
+	MAXVALUE 2147483647
+	START 1
+	CACHE 1
+	NO CYCLE;
+-- DROP SEQUENCE password_resets_id_seq;
 
-CREATE INDEX idx_problems_id ON problems(id);
+CREATE SEQUENCE password_resets_id_seq
+	INCREMENT BY 1
+	MINVALUE 1
+	MAXVALUE 2147483647
+	START 1
+	CACHE 1
+	NO CYCLE;
+-- DROP SEQUENCE problems_id_seq;
 
-CREATE TABLE problemsets (
-    id SERIAL PRIMARY KEY,
-    title VARCHAR(255) NOT NULL,
-    type VARCHAR(100) NOT NULL,
-    part_of VARCHAR(100) NOT NULL
-);
+CREATE SEQUENCE problems_id_seq
+	INCREMENT BY 1
+	MINVALUE 1
+	MAXVALUE 2147483647
+	START 1
+	CACHE 1
+	NO CYCLE;
+-- DROP SEQUENCE problemsets_id_seq;
 
-CREATE INDEX idx_problemsets_id ON problemsets(id);
+CREATE SEQUENCE problemsets_id_seq
+	INCREMENT BY 1
+	MINVALUE 1
+	MAXVALUE 2147483647
+	START 1
+	CACHE 1
+	NO CYCLE;
+-- DROP SEQUENCE users_id_seq;
 
-CREATE TABLE problemset_problems (
-    id_problem INTEGER NOT NULL REFERENCES problems(id) ON DELETE CASCADE,
-    id_problemset INTEGER NOT NULL REFERENCES problemsets(id) ON DELETE CASCADE,
-    PRIMARY KEY (id_problem, id_problemset)
-);
+CREATE SEQUENCE users_id_seq
+	INCREMENT BY 1
+	MINVALUE 1
+	MAXVALUE 2147483647
+	START 1
+	CACHE 1
+	NO CYCLE;-- public.invites definition
 
+-- Drop table
 
-ALTER TABLE problemset_problems ADD COLUMN position INTEGER;
-ALTER TABLE problemsets ADD COLUMN group_name VARCHAR(30);
-
-ALTER TABLE problems
-ALTER COLUMN latex_versions TYPE JSONB
-USING to_jsonb(latex_versions);
-
-CREATE TABLE users (
-    id SERIAL PRIMARY KEY,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    password VARCHAR(255) NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    name varchar(100),
-    surname varchar(100)
-);
-
-
+-- DROP TABLE invites;
 
 CREATE TABLE invites (
-    id SERIAL PRIMARY KEY,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    name VARCHAR(100),
-    surname VARCHAR(100),
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+	id serial4 NOT NULL,
+	email varchar(255) NOT NULL,
+	"name" varchar(100) NULL,
+	surname varchar(100) NULL,
+	created_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	CONSTRAINT invites_email_key UNIQUE (email),
+	CONSTRAINT invites_pkey PRIMARY KEY (id)
 );
 
+
+-- public.problems definition
+
+-- Drop table
+
+-- DROP TABLE problems;
+
+CREATE TABLE problems (
+	id serial4 NOT NULL,
+	latex_text text NOT NULL,
+	"comments" text NULL,
+	latex_versions jsonb NULL,
+	solution text NULL,
+	category varchar(1) NOT NULL,
+	CONSTRAINT problems_category_check CHECK (((category)::text = ANY ((ARRAY['A'::character varying, 'N'::character varying, 'G'::character varying, 'C'::character varying])::text[]))),
+	CONSTRAINT problems_pkey PRIMARY KEY (id)
+);
+CREATE INDEX idx_problems_id ON public.problems USING btree (id);
+
+
+-- public.problemsets definition
+
+-- Drop table
+
+-- DROP TABLE problemsets;
+
+CREATE TABLE problemsets (
+	id serial4 NOT NULL,
+	title varchar(255) NOT NULL,
+	"type" varchar(100) NOT NULL,
+	part_of varchar(100) NOT NULL,
+	group_name varchar(30) NULL,
+	CONSTRAINT problemsets_pkey PRIMARY KEY (id)
+);
+CREATE INDEX idx_problemsets_id ON public.problemsets USING btree (id);
+
+
+-- public.users definition
+
+-- Drop table
+
+-- DROP TABLE users;
+
+CREATE TABLE users (
+	id serial4 NOT NULL,
+	email varchar(255) NOT NULL,
+	"password" varchar(255) NOT NULL,
+	created_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	"name" varchar(100) NULL,
+	surname varchar(100) NULL,
+	CONSTRAINT users_email_key UNIQUE (email),
+	CONSTRAINT users_pkey PRIMARY KEY (id)
+);
+
+
+-- public.password_resets definition
+
+-- Drop table
+
+-- DROP TABLE password_resets;
+
 CREATE TABLE password_resets (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-    token VARCHAR(255) UNIQUE NOT NULL,
-    expires_at TIMESTAMPTZ NOT NULL,
-    used BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+	id serial4 NOT NULL,
+	user_id int4 NULL,
+	"token" varchar(255) NOT NULL,
+	expires_at timestamptz NOT NULL,
+	used bool DEFAULT false NULL,
+	created_at timestamptz DEFAULT CURRENT_TIMESTAMP NULL,
+	CONSTRAINT password_resets_pkey PRIMARY KEY (id),
+	CONSTRAINT password_resets_token_key UNIQUE (token),
+	CONSTRAINT password_resets_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+
+-- public.problemset_problems definition
+
+-- Drop table
+
+-- DROP TABLE problemset_problems;
+
+CREATE TABLE problemset_problems (
+	id_problem int4 NOT NULL,
+	id_problemset int4 NOT NULL,
+	"position" int4 NULL,
+	CONSTRAINT problemset_problems_pkey PRIMARY KEY (id_problem, id_problemset),
+	CONSTRAINT problemset_problems_id_problem_fkey FOREIGN KEY (id_problem) REFERENCES problems(id) ON DELETE CASCADE,
+	CONSTRAINT problemset_problems_id_problemset_fkey FOREIGN KEY (id_problemset) REFERENCES problemsets(id) ON DELETE CASCADE
 );
