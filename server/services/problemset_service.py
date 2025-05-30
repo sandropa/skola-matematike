@@ -8,7 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 # --- Import ORM Models ---
 try:
-    from ..models.problemset import Problemset as DBProblemset
+    from ..models.problemset import Problemset as DBProblemset, ProblemsetStatusEnum
     from ..models.problem import Problem
     from ..models.problemset_problems import ProblemsetProblems
 except ImportError as e:
@@ -18,7 +18,7 @@ except ImportError as e:
 # --- Import Pydantic Schemas ---
 try:
     from ..schemas.problemset import LectureProblemsOutput
-    from ..schemas.problemset import ProblemsetCreate, ProblemsetUpdate, ProblemsetSchema
+    from ..schemas.problemset import ProblemsetCreate, ProblemsetUpdate, ProblemsetSchema, ProblemsetFinalize
 except ImportError as e:
     logging.error(f"Failed to import Pydantic schemas: {e}")
     raise
@@ -458,3 +458,103 @@ def reorder_problems_in_problemset(
         db.rollback()
         logger.error(f"Service: Unexpected error reordering problems for problemset {problemset_id}: {e}", exc_info=True)
         raise ProblemsetServiceError(f"Unexpected error reordering problems: {e}")
+
+async def finalize_problemset(db: Session, problemset_id: int, finalize_data: ProblemsetFinalize) -> Optional[DBProblemset]:
+    """
+    Finalizes a problemset by:
+    1. Updating its status to FINALIZED
+    2. Parsing the raw LaTeX text into individual problems using GeminiService
+    3. Creating the problems and their relationships
+    """
+    logger.info(f"Service: Finalizing problemset with id {problemset_id}")
+    
+    # Get the problemset
+    db_problemset = get_one(db, problemset_id)
+    if not db_problemset:
+        logger.warning(f"Service: Problemset with id {problemset_id} not found for finalization.")
+        return None
+    
+    if db_problemset.status == ProblemsetStatusEnum.FINALIZED:
+        logger.warning(f"Service: Problemset {problemset_id} is already finalized.")
+        return db_problemset
+
+    try:
+        # Update the raw LaTeX text
+        db_problemset.raw_latex = finalize_data.raw_latex
+        
+        # Create a temporary PDF from the LaTeX text
+        from ..services.pdf_service import compile_latex_to_pdf
+        pdf_bytes = compile_latex_to_pdf(finalize_data.raw_latex)
+        
+        # Use GeminiService to parse the problems
+        from ..services.gemini_service import GeminiService
+        gemini_service = GeminiService(None)  # TODO: Get proper client instance
+        parsed_data = await gemini_service.process_lecture_pdf(pdf_bytes)
+        
+        # Create Problem objects for each parsed problem
+        problem_orms = []
+        for problem_data in parsed_data.problems_latex:
+            db_problem = Problem(
+                latex_text=problem_data.latex_text,
+                category=problem_data.category
+            )
+            problem_orms.append(db_problem)
+        db.add_all(problem_orms)
+        
+        # Create links between problemset and problems
+        problem_links = []
+        for index, db_problem in enumerate(problem_orms):
+            link = ProblemsetProblems(
+                id_problemset=db_problemset.id,
+                id_problem=db_problem.id,
+                position=index + 1
+            )
+            problem_links.append(link)
+        db.add_all(problem_links)
+        
+        # Update status to FINALIZED
+        db_problemset.status = ProblemsetStatusEnum.FINALIZED
+        
+        db.commit()
+        db.refresh(db_problemset)
+        logger.info(f"Service: Successfully finalized problemset with id {problemset_id}")
+        return db_problemset
+        
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Service: Database error occurred during problemset finalization: {e}", exc_info=True)
+        raise ProblemsetServiceError(f"Database error finalizing problemset: {e}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Service: Unexpected error during problemset finalization: {e}", exc_info=True)
+        raise ProblemsetServiceError(f"Unexpected error finalizing problemset: {e}")
+
+def save_draft(db: Session, problemset_id: int, raw_latex: str) -> Optional[DBProblemset]:
+    """
+    Saves a draft of a problemset by updating its raw LaTeX text.
+    Does not parse or create individual problems.
+    """
+    logger.info(f"Service: Saving draft for problemset with id {problemset_id}")
+    
+    db_problemset = get_one(db, problemset_id)
+    if not db_problemset:
+        logger.warning(f"Service: Problemset with id {problemset_id} not found for draft save.")
+        return None
+
+    try:
+        db_problemset.raw_latex = raw_latex
+        db_problemset.status = ProblemsetStatusEnum.DRAFT
+        
+        db.commit()
+        db.refresh(db_problemset)
+        logger.info(f"Service: Successfully saved draft for problemset with id {problemset_id}")
+        return db_problemset
+        
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Service: Database error occurred during draft save: {e}", exc_info=True)
+        raise ProblemsetServiceError(f"Database error saving draft: {e}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Service: Unexpected error during draft save: {e}", exc_info=True)
+        raise ProblemsetServiceError(f"Unexpected error saving draft: {e}")

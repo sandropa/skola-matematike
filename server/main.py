@@ -271,7 +271,6 @@ async def image_to_latex(file: UploadFile = File(..., description="Image file of
     except Exception as e:
         logger.error(f"An unexpected error occurred during image-to-latex conversion: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An internal error occurred during the image conversion process.")
-
     """
     Receives mathematical text (potentially including LaTeX) and translates
     it to Bosnian using the specific Gemini Client structure provided,
@@ -390,3 +389,4 @@ async def image_to_latex(file: UploadFile = File(..., description="Image file of
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An internal error occurred during the translation process."
         )
+

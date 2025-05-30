@@ -2,6 +2,16 @@
 
 import pytest 
 from fastapi import status 
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+from unittest.mock import Mock, patch, AsyncMock
+
+from server.main import app
+from server.models.problemset import Problemset, ProblemsetStatusEnum
+from server.models.problem import Problem
+from server.schemas.problemset import ProblemsetFinalize
+
+client = TestClient(app)
 
 # Test Data
 VALID_PROBLEMSET_DATA_1 = {

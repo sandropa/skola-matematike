@@ -36,7 +36,7 @@ except ImportError as e:
 # Import Pydantic schemas
 try:
     from ..schemas.problemset import LectureProblemsOutput
-    from ..schemas.problemset import ProblemsetSchema, ProblemsetCreate, ProblemsetUpdate
+    from ..schemas.problemset import ProblemsetSchema, ProblemsetCreate, ProblemsetUpdate, ProblemsetFinalize
     from ..schemas.problemset_problems import ProblemsetProblemsSchema
 except ImportError as e:
     logging.error(f"Failed to import Pydantic schemas: {e}")
@@ -44,7 +44,7 @@ except ImportError as e:
 
 # Import SQLAlchemy ORM models
 try:
-    from ..models.problemset import Problemset
+    from ..models.problemset import Problemset, ProblemsetStatusEnum
     from ..models.problem import Problem 
     from ..models.problemset_problems import ProblemsetProblems 
 except ImportError as e:
@@ -53,9 +53,12 @@ except ImportError as e:
 
 logger = logging.getLogger(__name__)
 
-# --- Request Body Model for Reordering ---
+# --- Request Body Models ---
 class ReorderProblemsPayload(BaseModel):
     problem_ids_ordered: List[int] = Field(..., examples=[[3, 1, 2]])
+
+class DraftSavePayload(BaseModel):
+    raw_latex: str = Field(..., description="The raw LaTeX text to save as a draft")
 
 router = APIRouter(
     prefix="/problemsets",
@@ -464,6 +467,83 @@ async def download_problemset_pdf(
     except Exception as e:
         logger.exception(f"Unexpected PDF download error (ID: {problemset_id}): {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unexpected error generating PDF.")
+
+@router.post(
+    "/{problemset_id}/save-draft",
+    response_model=ProblemsetSchema,
+    summary="Save a draft version of a problemset",
+    tags=["Problemsets", "Drafts"]
+)
+def save_problemset_draft(
+    problemset_id: int,
+    draft_data: DraftSavePayload,
+    db: Session = Depends(get_db)
+):
+    """
+    Save a draft version of a problemset. This will:
+    1. Update the raw LaTeX text
+    2. Set the status to DRAFT
+    3. Not parse or create individual problems
+    """
+    logger.info(f"Router: Request received for POST /problemsets/{problemset_id}/save-draft")
+    try:
+        updated_problemset = problemset_service.save_draft(
+            db=db,
+            problemset_id=problemset_id,
+            raw_latex=draft_data.raw_latex
+        )
+        if updated_problemset is None:
+            logger.warning(f"Router: Problemset with id {problemset_id} not found for draft save.")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problemset not found")
+        logger.info(f"Router: Successfully saved draft for problemset {problemset_id}")
+        return updated_problemset
+    except ProblemsetServiceError as e:
+        logger.error(f"Router: Service error saving draft for problemset {problemset_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        logger.error(f"Router: Unexpected error saving draft for problemset {problemset_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
+
+@router.post(
+    "/{problemset_id}/finalize",
+    response_model=ProblemsetSchema,
+    summary="Finalize a problemset",
+    tags=["Problemsets", "Finalization"]
+)
+async def finalize_problemset_endpoint(
+    problemset_id: int,
+    finalize_data: ProblemsetFinalize,
+    db: Session = Depends(get_db)
+):
+    """
+    Finalize a problemset. This will:
+    1. Update the raw LaTeX text
+    2. Parse the LaTeX into individual problems
+    3. Create the problems and their relationships
+    4. Set the status to FINALIZED
+    """
+    logger.info(f"Router: Request received for POST /problemsets/{problemset_id}/finalize")
+    try:
+        finalized_problemset = await problemset_service.finalize_problemset(
+            db=db,
+            problemset_id=problemset_id,
+            finalize_data=finalize_data
+        )
+        if finalized_problemset is None:
+            logger.warning(f"Router: Problemset with id {problemset_id} not found for finalization.")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problemset not found")
+        logger.info(f"Router: Successfully finalized problemset {problemset_id}")
+        return finalized_problemset
+    except ProblemsetServiceError as e:
+        logger.error(f"Router: Service error finalizing problemset {problemset_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        logger.error(f"Router: Unexpected error finalizing problemset {problemset_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
     
 
 @router.get("/{problemset_id}/pdf",
