@@ -1,6 +1,12 @@
 # server/schemas/problemset.py
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List
+from enum import Enum
+
+# Define the enum first
+class ProblemsetStatusEnum(str, Enum):
+    DRAFT = "DRAFT"
+    FINALIZED = "FINALIZED"
 
 # Import the schema for the link object
 # Ensure this import path is correct relative to your project structure
@@ -24,6 +30,8 @@ class ProblemsetBase(BaseModel):
     type: str = Field(..., examples=["predavanje", "vjezbe", "ispit"]) # Lecture, exercises, exam
     part_of: str = Field(..., examples=["ljetni kamp", "skola matematike"]) # Context like camp or regular school
     group_name: Optional[str] = Field(None, examples=["pocetna", "napredna"]) # Target group, can be optional
+    raw_latex: Optional[str] = Field(None, description="Raw LaTeX text of the problemset")
+    status: ProblemsetStatusEnum = Field(default=ProblemsetStatusEnum.DRAFT)
 
 # Schema for creating a new problemset (used in POST request body)
 class ProblemsetCreate(ProblemsetBase):
@@ -35,6 +43,10 @@ class ProblemsetCreate(ProblemsetBase):
 # For partial updates (PATCH), you might make fields Optional here.
 class ProblemsetUpdate(ProblemsetBase):
     pass
+
+# Schema for finalizing a problemset
+class ProblemsetFinalize(BaseModel):
+    raw_latex: str = Field(..., description="The complete LaTeX text to parse and save as problems")
 
 # --- UPDATED SCHEMA FOR RESPONSES ---
 

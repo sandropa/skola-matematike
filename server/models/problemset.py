@@ -8,6 +8,10 @@ class ProgramTypeEnum(enum.Enum):
     LJETNI_KAMP = "ljetni kamp"
     ZIMSKI_KAMP = "zimski kamp"
 
+class ProblemsetStatusEnum(enum.Enum):
+    DRAFT = "DRAFT"
+    FINALIZED = "FINALIZED"
+
 class Problemset(Base):
     __tablename__ = "problemsets"
     
@@ -18,8 +22,12 @@ class Problemset(Base):
 
     group_name = Column(String)
     
+    # New fields
+    raw_latex = Column(Text, nullable=True)  # Store the raw LaTeX text
+    status = Column(Enum(ProblemsetStatusEnum), nullable=False, default=ProblemsetStatusEnum.DRAFT)
+    
     # Relationships
     problems = relationship("ProblemsetProblems", back_populates="problemset")
 
     def __repr__(self):
-         return f"<Problemset(id={self.id}, title='{self.title}', type='{self.type}', part_of='{self.part_of}')>"
+         return f"<Problemset(id={self.id}, title='{self.title}', type='{self.type}', part_of='{self.part_of}', status='{self.status}')>"
