@@ -4,7 +4,7 @@ import logging
 import io
 
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Query 
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import SQLAlchemyError 
 
@@ -20,6 +20,7 @@ try:
     from ..services import problemset_service 
     from ..services import problem_service 
     from ..services.pdf_service import get_problemset_pdf, PDFGenerationError, ProblemsetNotFound
+    from ..services import pdf_service # todo mozda ukloniti
 except ImportError as e:
      logging.error(f"Failed to import service classes/functions: {e}")
      raise
@@ -543,3 +544,70 @@ async def finalize_problemset_endpoint(
     except Exception as e:
         logger.error(f"Router: Unexpected error finalizing problemset {problemset_id}: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
+    
+
+@router.get("/{problemset_id}/pdf",
+            response_class=Response, # Use Response for direct bytes
+            responses={
+                200: {
+                    "content": {"application/pdf": {}},
+                    "description": "Returns the PDF of the problemset."
+                },
+                404: {"description": "Problemset not found"},
+                500: {"description": "PDF Generation Error"}
+            })
+async def get_problemset_pdf_endpoint(problemset_id: int, db: Session = Depends(get_db)):
+    try:
+        pdf_bytes = pdf_service.get_problemset_pdf(db, problemset_id)
+        
+        # Use Response for direct bytes with correct media type
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"inline; filename=problemset_{problemset_id}.pdf"
+            }
+        )
+    except pdf_service.ProblemsetNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except pdf_service.PDFGenerationError as e:
+        # Log the detailed error on the server
+        pdf_service.logger.error(f"PDF Generation Error for problemset {problemset_id}: {e.log if e.log else str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate PDF. {str(e)}")
+    except Exception as e:
+        pdf_service.logger.exception(f"Unexpected error serving PDF for problemset {problemset_id}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred while generating the PDF.")
+
+# --- NEW Endpoint for compiling arbitrary LaTeX ---
+@router.post("/compile-latex",
+             response_class=Response,
+             responses={
+                 200: {
+                     "content": {"application/pdf": {}},
+                     "description": "Returns the compiled PDF."
+                 },
+                 500: {"description": "PDF Compilation Error"}
+             })
+async def compile_latex_from_text_endpoint(payload: dict): # Expecting {"latex_code": "..."}
+    latex_code = payload.get("latex_code")
+    if not latex_code:
+        raise HTTPException(status_code=400, detail="latex_code field is required.")
+    
+    try:
+        pdf_bytes = pdf_service.compile_latex_to_pdf(latex_code)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": "inline; filename=compiled_document.pdf"
+            }
+        )
+    except pdf_service.PDFGenerationError as e:
+        pdf_service.logger.error(f"Direct LaTeX Compilation Error: {e.log if e.log else str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to compile LaTeX. {str(e)}")
+    except FileNotFoundError as e: # Specifically for pdflatex not found
+        pdf_service.logger.error(f"pdflatex not found during direct compilation: {e}")
+        raise HTTPException(status_code=500, detail="PDF compiler (pdflatex) not found on the server.")
+    except Exception as e:
+        pdf_service.logger.exception(f"Unexpected error during direct LaTeX compilation.")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred during LaTeX compilation.")

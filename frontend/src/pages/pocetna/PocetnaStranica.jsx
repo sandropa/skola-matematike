@@ -14,6 +14,8 @@ import { User as UserIcon, Settings as SettingsIcon } from 'lucide-react';
 
 export default function Pocetna() {
   const [projects, setProjects] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+
 
   useEffect(() => {
     axios
@@ -25,6 +27,10 @@ export default function Pocetna() {
         console.error("Greška prilikom dohvatanja predavanja:", err);
       });
   }, []);
+  const filtriraniProjekti = projects.filter((project) =>
+  project.title.toLowerCase().includes(searchTerm.toLowerCase())
+);
+
 
   return (
     <div>
@@ -37,7 +43,15 @@ export default function Pocetna() {
 
         </div>
         <div className="navbar-right">
-          <div className="navbar-item">Predavači</div>
+        <Link
+  to="/predavaci"
+  className="navbar-item"
+  style={{ textDecoration: 'none', color: 'inherit' }}
+>
+  Predavači
+</Link>
+
+
         </div>
       </nav>
 
@@ -45,9 +59,11 @@ export default function Pocetna() {
         {}
         <div className="sidebar">
           <div>
-            <button className="full-width">
-              <Plus className="icon" /> Dodaj predavanje
-            </button>
+            <Link to="/editor">
+              <button className="full-width">
+                <Plus className="icon" /> Dodaj predavanje
+              </button>
+            </Link>
 
             <div className="sidebar-section">
               <div className="section-title">Tagovi</div>
@@ -74,6 +90,8 @@ export default function Pocetna() {
                 type="text"
                 placeholder="Pretraga svih predavanja..."
                 className="search-input large"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
           </div>
@@ -89,7 +107,7 @@ export default function Pocetna() {
                 </tr>
               </thead>
               <tbody>
-                {projects.map((project, index) => (
+                {filtriraniProjekti.map((project, index) => (
                   <tr key={index}>
                     <td>{project.title}</td>
                     <td>{project.group_name || "Nepoznato"}</td>
