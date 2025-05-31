@@ -121,7 +121,7 @@ def send_email(to_email: str, invite_id: str):
     msg['Subject'] = "Invite za kreiranje predavačkog profila na Školi matematike"
     msg['From'] = EMAIL_ADDRESS
     msg['To'] = to_email
-    msg.set_content(f"Pozdrav, Pozvani ste da se registrujete kao predavač na platformi Škola Matematike. Kliknite na link ispod da biste kreirali svoj nalog:, http://127.0.0.1:8000/users/accept-invite/{invite_id}")
+    msg.set_content(f"Pozdrav, Pozvani ste da se registrujete kao predavač na platformi Škola Matematike. Kliknite na link ispod da biste kreirali svoj nalog:,http://localhost:5173/accept-invite/{invite_id}")
 
     try:
         with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as smtp:
