@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Avatar, Modal, Box, TextField, Button, Typography } from '@mui/material';
+import { Snackbar, Alert } from '@mui/material';
+
 import './Predavaci.css';
 
 function Predavaci() {
@@ -10,6 +12,10 @@ function Predavaci() {
   const [newSurname, setNewSurname] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [showError, setShowError] = useState(false);
+const [errorMessage, setErrorMessage] = useState('');
+
 
 
   useEffect(() => {
@@ -34,9 +40,15 @@ function Predavaci() {
         setNewName('');
         setNewSurname('');
         setNewEmail('');
+         setShowSuccess(true)
       })
-      .catch(err => console.error('Greška pri dodavanju predavača:', err));
-  };
+    .catch(err => {
+  console.error('Greška pri dodavanju predavača:', err);
+  setErrorMessage('Email nije ispravan ili već postoji.');
+  setShowError(true);
+});
+
+};
 
   const filteredLecturers = lecturers.filter((lecturer) =>
     (`${lecturer.name} ${lecturer.surname}`).toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -201,6 +213,27 @@ function Predavaci() {
   </Box>
 </Modal>
 
+<Snackbar
+  open={showSuccess}
+  autoHideDuration={4000}
+  onClose={() => setShowSuccess(false)}
+  anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+>
+  <Alert onClose={() => setShowSuccess(false)} severity="success" sx={{ width: '100%' }}>
+    Pozivnica je uspješno poslana!
+  </Alert>
+</Snackbar>
+
+<Snackbar
+  open={showError}
+  autoHideDuration={5000}
+  onClose={() => setShowError(false)}
+  anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+>
+  <Alert onClose={() => setShowError(false)} severity="error" sx={{ width: '100%' }}>
+    {errorMessage}
+  </Alert>
+</Snackbar>
     </>
   );
 }
