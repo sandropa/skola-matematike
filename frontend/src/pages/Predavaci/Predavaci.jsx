@@ -13,6 +13,8 @@ function Predavaci() {
   const [newEmail, setNewEmail] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  const [showError, setShowError] = useState(false);
+const [errorMessage, setErrorMessage] = useState('');
 
 
 
@@ -40,8 +42,13 @@ function Predavaci() {
         setNewEmail('');
          setShowSuccess(true)
       })
-      .catch(err => console.error('Greška pri dodavanju predavača:', err));
-  };
+    .catch(err => {
+  console.error('Greška pri dodavanju predavača:', err);
+  setErrorMessage('Email nije ispravan ili već postoji.');
+  setShowError(true);
+});
+
+};
 
   const filteredLecturers = lecturers.filter((lecturer) =>
     (`${lecturer.name} ${lecturer.surname}`).toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -217,6 +224,16 @@ function Predavaci() {
   </Alert>
 </Snackbar>
 
+<Snackbar
+  open={showError}
+  autoHideDuration={5000}
+  onClose={() => setShowError(false)}
+  anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+>
+  <Alert onClose={() => setShowError(false)} severity="error" sx={{ width: '100%' }}>
+    {errorMessage}
+  </Alert>
+</Snackbar>
     </>
   );
 }
