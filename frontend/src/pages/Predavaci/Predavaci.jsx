@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Avatar, Modal, Box, TextField, Button, Typography } from '@mui/material';
+import { Snackbar, Alert } from '@mui/material';
+
 import './Predavaci.css';
 
 function Predavaci() {
@@ -10,6 +12,8 @@ function Predavaci() {
   const [newSurname, setNewSurname] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [showSuccess, setShowSuccess] = useState(false);
+
 
 
   useEffect(() => {
@@ -34,6 +38,7 @@ function Predavaci() {
         setNewName('');
         setNewSurname('');
         setNewEmail('');
+         setShowSuccess(true)
       })
       .catch(err => console.error('Greška pri dodavanju predavača:', err));
   };
@@ -200,6 +205,17 @@ function Predavaci() {
     </Box>
   </Box>
 </Modal>
+
+<Snackbar
+  open={showSuccess}
+  autoHideDuration={4000}
+  onClose={() => setShowSuccess(false)}
+  anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+>
+  <Alert onClose={() => setShowSuccess(false)} severity="success" sx={{ width: '100%' }}>
+    Pozivnica je uspješno poslana!
+  </Alert>
+</Snackbar>
 
     </>
   );
