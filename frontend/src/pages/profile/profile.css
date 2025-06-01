@@ -1,4 +1,4 @@
-/* Modern Profile Layout */
+
 .profile-container {
   min-height: 100vh;
   background-color: #f4f7fe;
@@ -8,7 +8,7 @@
   padding: 24px;
 }
 
-/* Sidebar Styles */
+
 .profile-sidebar {
   background: #1e6ca6;
   border-radius: 16px;
@@ -129,7 +129,6 @@
   color: rgba(255, 255, 255, 0.8);
 }
 
-/* Main Content Styles */
 .profile-content {
   background: white;
   border-radius: 16px;
@@ -332,3 +331,27 @@
   position: relative;
   z-index: 1;
 }
+
+
+
+.remove-photo-btn {
+
+  background: transparent;
+  border: 1px solid white;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+
+.remove-photo-btn:hover {
+  background: white;
+  color: #1e6ca6;
+}
+
+
+
+
+

@@ -119,6 +119,25 @@ function Profil() {
 };
 
 
+
+const handleRemovePhoto = () => {
+  axios.delete(`http://localhost:8000/users/${id}/delete-photo`, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  })
+  .then(() => {
+    setUser(prev => ({ ...prev, profileImage: '' }));
+    alert("Profilna slika je uklonjena.");
+  })
+  .catch(err => {
+    console.error('Greška pri uklanjanju slike:', err);
+    alert("Došlo je do greške.");
+  });
+};
+
+
+
   return (
     <div>
       <nav className="navbar">
@@ -153,6 +172,13 @@ function Profil() {
       onChange={handleImageUpload}
     />
   </label>
+  <button
+  className="remove-photo-btn"
+  onClick={handleRemovePhoto}
+>
+  Ukloni
+</button>
+
 </div>
 
               </>
@@ -171,6 +197,13 @@ function Profil() {
       onChange={handleImageUpload}
     />
   </label>
+  <button
+  className="remove-photo-btn"
+  onClick={handleRemovePhoto}
+>
+  Ukloni
+</button>
+
 </div>
 
               </>
