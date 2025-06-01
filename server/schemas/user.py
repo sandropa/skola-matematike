@@ -1,6 +1,8 @@
 # server/schemas/user.py
 from pydantic import BaseModel, EmailStr,Field
 from pydantic import BaseModel, EmailStr
+from typing import Optional
+
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -32,6 +34,7 @@ class UserOut(BaseModel):
     email: EmailStr
     name: str
     surname: str
+    profile_image: Optional[str] = None
 
     class Config:
         orm_mode = True

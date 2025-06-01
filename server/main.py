@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException, status, File, UploadFile # Added Fil
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
+from fastapi.staticfiles import StaticFiles
 import mimetypes # Import mimetypes for guessing content type if needed (though UploadFile provides it)
 
 from .routers import problems
@@ -390,3 +391,6 @@ async def image_to_latex(file: UploadFile = File(..., description="Image file of
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An internal error occurred during the translation process."
         )
+
+
+app.mount("/uploaded_images", StaticFiles(directory="uploaded_images"), name="uploaded_images")

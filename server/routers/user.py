@@ -239,22 +239,24 @@ def reset_password(data: PasswordResetConfirm, db: Session = Depends(get_db)):
 UPLOAD_DIR = "uploaded_images"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-@router.post("/users/{user_id}/upload-photo")
+@router.post("/{user_id}/upload-photo")
 def upload_profile_image(user_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
-
     filename = f"{uuid4()}_{file.filename}"
     file_path = os.path.join(UPLOAD_DIR, filename)
 
- 
+  
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
- 
+   
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Korisnik nije pronađen")
 
-    user.profile_image = file_path
+  
+    image_url = f"/uploaded_images/{filename}"
+    user.profile_image = image_url
+
     db.commit()
 
-    return {"message": "Slika uspešno uploadovana", "image_path": file_path}
+    return {"message": "Slika uspešno uploadovana", "image_path": image_url}
