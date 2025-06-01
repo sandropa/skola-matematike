@@ -18,6 +18,11 @@ from server.schemas.user import CompleteInviteRequest
 from server.models.password_reset import PasswordReset
 import secrets
 from datetime import datetime, timezone, timedelta
+import shutil
+import os
+from uuid import uuid4
+
+from fastapi import UploadFile, File, Depends, HTTPException
 
 
 from typing import List
@@ -228,3 +233,28 @@ def reset_password(data: PasswordResetConfirm, db: Session = Depends(get_db)):
     db.commit()
 
     return {"message": "Lozinka je uspješno resetovana."}
+
+
+
+UPLOAD_DIR = "uploaded_images"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+@router.post("/users/{user_id}/upload-photo")
+def upload_profile_image(user_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+
+    filename = f"{uuid4()}_{file.filename}"
+    file_path = os.path.join(UPLOAD_DIR, filename)
+
+ 
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+ 
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Korisnik nije pronađen")
+
+    user.profile_image = file_path
+    db.commit()
+
+    return {"message": "Slika uspešno uploadovana", "image_path": file_path}

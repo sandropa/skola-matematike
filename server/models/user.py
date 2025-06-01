@@ -12,6 +12,8 @@ class User(Base):
     password = Column(String, nullable=False)
     name = Column(String, nullable=False)
     surname = Column(String, nullable=False)
+    profile_image = Column(String, nullable=True)
+
 
 
     def __repr__(self):
