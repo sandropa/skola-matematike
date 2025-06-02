@@ -35,25 +35,7 @@ export default function Pocetna() {
   return (
     <div>
       {}
-      <nav className="navbar">
-        <div className="navbar-left">
-          <a href="pocetna">
-  <img src="logo.png" class="navbar-logo" alt="Logo" />
-</a>
-
-        </div>
-        <div className="navbar-right">
-        <Link
-  to="/predavaci"
-  className="navbar-item"
-  style={{ textDecoration: 'none', color: 'inherit' }}
->
-  Predavači
-</Link>
-
-
-        </div>
-      </nav>
+      
 
       <div className="container">
         {}
