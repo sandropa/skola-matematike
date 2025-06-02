@@ -146,3 +146,6 @@ CREATE TABLE problemset_problems (
 	CONSTRAINT problemset_problems_id_problem_fkey FOREIGN KEY (id_problem) REFERENCES problems(id) ON DELETE CASCADE,
 	CONSTRAINT problemset_problems_id_problemset_fkey FOREIGN KEY (id_problemset) REFERENCES problemsets(id) ON DELETE CASCADE
 );
+
+
+ALTER TABLE users ADD COLUMN profile_image TEXT;

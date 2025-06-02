@@ -107,9 +107,13 @@ const [errorMessage, setErrorMessage] = useState('');
 
               <div className="user-card" key={lecturer.id}>
                 <div className="user-avatar">
-                  <Avatar sx={{ width: 80, height: 80 }}>
-                    {getInitials(lecturer.name, lecturer.surname)}
-                  </Avatar>
+                 <Avatar
+  sx={{ width: 80, height: 80 }}
+  src={lecturer.profile_image ? `http://localhost:8000${lecturer.profile_image}` : undefined}
+>
+  {!lecturer.profile_image && getInitials(lecturer.name, lecturer.surname)}
+</Avatar>
+
                 </div>
                 <div className="user-info">
                   <h3 className="user-name">{lecturer.name} {lecturer.surname}</h3>
