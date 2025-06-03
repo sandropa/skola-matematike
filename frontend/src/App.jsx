@@ -6,7 +6,7 @@ import Login from './pages/login/Login';
 import UserProfile from "./pages/profile/UserProfile";
 
 import PocetnaStranica from './pages/pocetna/PocetnaStranica';
-import Predavaci from './pages/predavaci/Predavaci';
+import Predavaci from './pages/Predavaci/Predavaci';
 import AcceptInvite from  './pages/login/AcceptInvite';
 import ResetPassword from  './pages/login/ResetPassword';
 import ResetPasswordRequest from  './pages/login/ResetPasswordRequest';
