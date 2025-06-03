@@ -11,35 +11,44 @@ import AcceptInvite from  './pages/login/AcceptInvite';
 import ResetPassword from  './pages/login/ResetPassword';
 import ResetPasswordRequest from  './pages/login/ResetPasswordRequest';
 import './App.css';
+import Navbar from './components/Navbar';
+
 import LatexEditor from './pages/LatexEditor';
 
 function App() {
   const location = useLocation();
 
-  return (
-    <div className="App">
-      {/*location.pathname !== "/login" && (
-        <>
-          <nav>
-            
-          </nav>
-        </>
-      )*/}
 
-      <Routes>
-        <Route path="/editor" element={<LatexEditor />} />
-        <Route path="/lecture/:id" element={<LectureView />} />
-        <Route path="/profil/:id" element={<UserProfile />} />
-        <Route path="/login" element={<Login />} />
-        <Route path='/pocetna' element={<PocetnaStranica />}/>
-        <Route path='/predavaci' element={<Predavaci />}/>
-        <Route path="/accept-invite/:inviteId" element={<AcceptInvite />} />
-        <Route path="*" element={<div>404: Page Not Found</div>} />
-        <Route path="/reset-password" element={<ResetPassword />} />
-        <Route path="/forgot-password" element={<ResetPasswordRequest />} />
-      </Routes>
-    </div>
-  );
+
+const hideNavbarOnRoutes = [
+  "/login",
+  "/reset-password",
+  "/forgot-password"
+];
+
+const isInviteRoute = location.pathname.startsWith("/accept-invite");
+
+const showNavbar = !hideNavbarOnRoutes.includes(location.pathname) && !isInviteRoute;
+
+return (
+  <div className="App">
+    {showNavbar && <Navbar />}
+
+    <Routes>
+      <Route path="/editor" element={<LatexEditor />} />
+      <Route path="/lecture/:id" element={<LectureView />} />
+      <Route path="/profil/:id" element={<UserProfile />} />
+      <Route path="/login" element={<Login />} />
+      <Route path="/pocetna" element={<PocetnaStranica />} />
+      <Route path="/predavaci" element={<Predavaci />} />
+      <Route path="/accept-invite/:inviteId" element={<AcceptInvite />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/forgot-password" element={<ResetPasswordRequest />} />
+      <Route path="*" element={<div>404: Page Not Found</div>} />
+    </Routes>
+  </div>
+);
+
 }
 
 export default App;

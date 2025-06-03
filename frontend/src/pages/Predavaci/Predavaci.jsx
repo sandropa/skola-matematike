@@ -62,16 +62,7 @@ const [errorMessage, setErrorMessage] = useState('');
      
 
 
-      <nav className="navbar">
-        <div className="navbar-left">
-          <a href="/pocetna">
-            <img src="/logo.png" className="navbar-logo" alt="Logo" />
-          </a>
-        </div>
-        <div className="navbar-right">
-        
-        </div>
-      </nav>
+      
 
       <div className="users-container">
         <div className="users-content">

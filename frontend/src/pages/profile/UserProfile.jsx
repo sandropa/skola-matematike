@@ -18,7 +18,7 @@ function Profil() {
 
   const token = localStorage.getItem('token');
 
-  // Dohvati korisnika pri učitavanju
+
   useEffect(() => {
     axios.get(`http://localhost:8000/users/${id}`, {
       headers: {
@@ -140,16 +140,7 @@ const handleRemovePhoto = () => {
 
   return (
     <div>
-      <nav className="navbar">
-        <div className="navbar-left">
-          <a href="pocetna">
-            <img src="/logo.png" className="navbar-logo" alt="Logo" />
-          </a>
-        </div>
-        <div className="navbar-right">
-          <div className="navbar-item">Predavači</div>
-        </div>
-      </nav>
+ 
 
       <div className="profile-container">
         <div className="profile-sidebar">
