@@ -22,6 +22,9 @@ function Predavaci() {
   const [selectedLecturer, setSelectedLecturer] = useState(null);
   const [roleUpdateModalOpen, setRoleUpdateModalOpen] = useState(false);
   const [updatedRole, setUpdatedRole] = useState('');
+  const role = localStorage.getItem("role");
+console.log("ROLE:", role);
+
 
 
 
@@ -114,9 +117,12 @@ function Predavaci() {
             </div>
 
             <div className="filters-container">
-              <button className="filter-button active" onClick={() => setOpenModal(true)}>
-                Dodaj predavača
-              </button>
+              {role === "admin" && (
+  <button className="filter-button active" onClick={() => setOpenModal(true)}>
+    Dodaj predavača
+  </button>
+)}
+
             </div>
           </div>
 
@@ -136,9 +142,10 @@ function Predavaci() {
                 <div className="user-info">
                   <h3 className="user-name">{lecturer.name} {lecturer.surname}</h3>
                   <p className="user-email">{lecturer.email}</p>
-                  <div className="edit-icon" onClick={() => openRoleModal(lecturer)} title="Uredi ulogu">
-  <EditIcon style={{ fontSize: 20 }} />
-</div>
+                  {role === "admin" && (
+  <EditIcon className="edit-icon" onClick={() => openRoleModal(lecturer)} />
+)}
+
 
                   <div className="user-tags">
                     {lecturer.tags?.map((tag, index) => (

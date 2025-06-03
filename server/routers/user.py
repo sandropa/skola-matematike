@@ -47,7 +47,7 @@ def login(user_login: UserLogin, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=400, detail="Invalid credentials")
     token = create_access_token(data={"sub": user.email})
-    return {"access_token": token, "token_type": "bearer", "user_id": user.id}
+    return {"access_token": token, "token_type": "bearer", "user_id": user.id, "role": user.role}
 
 @router.get("/", response_model=List[UserOut], summary="Get All Users")
 def read_all_users(db: Session = Depends(get_db)):
