@@ -35,6 +35,7 @@ class UserOut(BaseModel):
     name: str
     surname: str
     profile_image: Optional[str] = None
+    role: str
 
     class Config:
         orm_mode = True
@@ -42,8 +43,8 @@ class UserOut(BaseModel):
 class InviteRequest(BaseModel):
     to_email: str
     name: str
-    
     surname: str
+    role: str = "user"
 class CompleteInviteRequest(BaseModel):
     password: str = Field(min_length=6)
 
