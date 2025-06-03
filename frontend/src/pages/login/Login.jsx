@@ -20,12 +20,14 @@ function Login() {
         password,
       });
 
-      const { access_token, user_id } = response.data;
-      console.log(access_token)
+      const { access_token, user_id, role } = response.data;
 
-      localStorage.setItem('token', access_token);
-      localStorage.setItem('user_id', user_id);
-      navigate(`/profil/${user_id}`)
+localStorage.setItem('token', access_token);
+localStorage.setItem('user_id', user_id);
+localStorage.setItem('role', role);
+
+navigate(`/profil/${user_id}`);
+
 
       
     } catch (err) {

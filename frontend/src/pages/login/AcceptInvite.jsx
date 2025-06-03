@@ -28,7 +28,7 @@ function AcceptInvite() {
       });
 
       setSuccessMsg(res.data.message);
-      setTimeout(() => navigate('/login'), 2000);
+      setTimeout(() => navigate('/'), 2000);
     } catch (err) {
       console.error('Invite error:', err);
       setErrorMsg(err.response?.data?.detail || 'Greška pri registraciji.');
@@ -65,7 +65,7 @@ function AcceptInvite() {
           {errorMsg && <p className="error-msg">{errorMsg}</p>}
 
           <div className="login-links">
-            <a href="/login">Već imaš nalog?</a>
+            <a href="/">Već imaš nalog?</a>
           </div>
         </div>
       </div>

@@ -15,6 +15,8 @@ import { User as UserIcon, Settings as SettingsIcon } from 'lucide-react';
 export default function Pocetna() {
   const [projects, setProjects] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const userId = localStorage.getItem("user_id");
+
 
 
   useEffect(() => {
@@ -56,9 +58,10 @@ export default function Pocetna() {
           </div>
 
           <div className="sidebar-section bottom-icons">
-            <Link to="/profil">
-              <UserIcon className="action-icon large-icon" />
-            </Link>
+            <Link to={`/profil/${userId}`}>
+  <UserIcon className="action-icon large-icon" />
+</Link>
+
             <SettingsIcon className="action-icon large-icon" />
           </div>
         </div>
