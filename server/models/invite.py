@@ -10,3 +10,4 @@ class Invite(Base):
     name = Column(String(100))
     surname = Column(String(100))
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    role = Column(String, default="user")

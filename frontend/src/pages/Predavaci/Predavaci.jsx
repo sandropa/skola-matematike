@@ -15,6 +15,8 @@ function Predavaci() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [showError, setShowError] = useState(false);
 const [errorMessage, setErrorMessage] = useState('');
+const [newRole, setNewRole] = useState('user');
+
 
 
 
@@ -32,7 +34,7 @@ const [errorMessage, setErrorMessage] = useState('');
     `${name?.[0] || ''}${surname?.[0] || ''}`.toUpperCase();
 
   const handleAddLecturer = () => {
-    const novi = { name: newName, surname: newSurname, to_email: newEmail };
+    const novi = { name: newName, surname: newSurname, to_email: newEmail, role: newRole };
     axios.post('http://localhost:8000/users/send-invite', novi)
       .then(() => {
         fetchLecturers();
@@ -175,6 +177,18 @@ const [errorMessage, setErrorMessage] = useState('');
       onChange={e => setNewEmail(e.target.value)}
       fullWidth
     />
+    <TextField
+  label="Uloga"
+  select
+  value={newRole}
+  onChange={e => setNewRole(e.target.value)}
+  fullWidth
+  SelectProps={{ native: true }}
+>
+  <option value="user">User</option>
+  <option value="admin">Admin</option>
+</TextField>
+
 
     <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2, mt: 1 }}>
       <Button

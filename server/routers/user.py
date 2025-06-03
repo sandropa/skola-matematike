@@ -140,11 +140,14 @@ def send_email(to_email: str, invite_id: str):
 
 @router.post("/send-invite")
 def send_invite(invite: InviteRequest, db: Session = Depends(get_db)):
-   
+    if invite.role not in ["user", "admin"]:
+        raise HTTPException(status_code=400, detail="Invalid role")
+
     new_invite = Invite(
         email=invite.to_email,
         name=invite.name,
-        surname=invite.surname
+        surname=invite.surname,
+        role=invite.role  
     )
     db.add(new_invite)
     db.commit()
@@ -153,6 +156,7 @@ def send_invite(invite: InviteRequest, db: Session = Depends(get_db)):
     send_email(invite.to_email, new_invite.id)
 
     return {"message": f"Invitation sent and saved for {invite.to_email}"}
+
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -175,10 +179,12 @@ def accept_invite(invite_id: int, request: CompleteInviteRequest, db: Session = 
         email=invite.email,
         name=invite.name,
         surname=invite.surname,
-        password=hash_password(request.password)
+        password=hash_password(request.password),
+        role=invite.role or "user" 
     )
 
     db.add(new_user)
+    db.delete(invite)
     db.commit()
 
     return {"message": "Registracija uspešna!"}
