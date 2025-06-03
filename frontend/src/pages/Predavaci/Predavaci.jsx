@@ -4,6 +4,9 @@ import { Avatar, Modal, Box, TextField, Button, Typography } from '@mui/material
 import { Snackbar, Alert } from '@mui/material';
 
 import './Predavaci.css';
+import EditIcon from '@mui/icons-material/Edit';
+
+
 
 function Predavaci() {
   const [lecturers, setLecturers] = useState([]);
@@ -14,8 +17,12 @@ function Predavaci() {
   const [searchTerm, setSearchTerm] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
   const [showError, setShowError] = useState(false);
-const [errorMessage, setErrorMessage] = useState('');
-const [newRole, setNewRole] = useState('user');
+  const [errorMessage, setErrorMessage] = useState('');
+  const [newRole, setNewRole] = useState('user');
+  const [selectedLecturer, setSelectedLecturer] = useState(null);
+  const [roleUpdateModalOpen, setRoleUpdateModalOpen] = useState(false);
+  const [updatedRole, setUpdatedRole] = useState('');
+
 
 
 
@@ -29,6 +36,11 @@ const [newRole, setNewRole] = useState('user');
       .then(res => setLecturers(res.data))
       .catch(err => console.error('Greška pri dohvaćanju predavača:', err));
   };
+  const openRoleModal = (lecturer) => {
+  setSelectedLecturer(lecturer);
+  setUpdatedRole(lecturer.role || 'user');
+  setRoleUpdateModalOpen(true);
+};
 
   const getInitials = (name, surname) =>
     `${name?.[0] || ''}${surname?.[0] || ''}`.toUpperCase();
@@ -56,7 +68,20 @@ const [newRole, setNewRole] = useState('user');
     (`${lecturer.name} ${lecturer.surname}`).toLowerCase().includes(searchTerm.toLowerCase()) ||
     lecturer.email.toLowerCase().includes(searchTerm.toLowerCase())
   );
-  
+  const handleRoleUpdate = () => {
+  axios.put(`http://localhost:8000/users/${selectedLecturer.id}/role`, {
+    role: updatedRole
+  })
+    .then(() => {
+      setRoleUpdateModalOpen(false);
+      fetchLecturers(); 
+    })
+    .catch(err => {
+      console.error('Greška pri izmjeni uloge:', err);
+      alert('Greška pri izmjeni uloge.');
+    });
+};
+
 
   return (
     <>
@@ -111,6 +136,10 @@ const [newRole, setNewRole] = useState('user');
                 <div className="user-info">
                   <h3 className="user-name">{lecturer.name} {lecturer.surname}</h3>
                   <p className="user-email">{lecturer.email}</p>
+                  <div className="edit-icon" onClick={() => openRoleModal(lecturer)} title="Uredi ulogu">
+  <EditIcon style={{ fontSize: 20 }} />
+</div>
+
                   <div className="user-tags">
                     {lecturer.tags?.map((tag, index) => (
                       <span className="tag" key={index}>{tag}</span>
@@ -243,8 +272,51 @@ const [newRole, setNewRole] = useState('user');
     {errorMessage}
   </Alert>
 </Snackbar>
+<Modal open={roleUpdateModalOpen} onClose={() => setRoleUpdateModalOpen(false)}>
+  <Box
+    sx={{
+      position: 'absolute',
+      top: '50%',
+      left: '50%',
+      transform: 'translate(-50%, -50%)',
+      bgcolor: '#ffffff',
+      borderRadius: 3,
+      boxShadow: 24,
+      width: 420,
+      p: 4,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 3
+    }}
+  >
+    <Typography variant="h6">Promjena uloge</Typography>
+
+    <Typography variant="body1">
+      {selectedLecturer?.name} {selectedLecturer?.surname} ({selectedLecturer?.email})
+    </Typography>
+
+    <TextField
+      select
+      label="Uloga"
+      value={updatedRole}
+      onChange={(e) => setUpdatedRole(e.target.value)}
+      SelectProps={{ native: true }}
+      fullWidth
+    >
+      <option value="user">User</option>
+      <option value="admin">Admin</option>
+    </TextField>
+
+    <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
+      <Button onClick={() => setRoleUpdateModalOpen(false)}>Otkaži</Button>
+      <Button variant="contained" onClick={handleRoleUpdate}>Sačuvaj</Button>
+    </Box>
+  </Box>
+</Modal>
+
     </>
   );
+
 }
 
 export default Predavaci;

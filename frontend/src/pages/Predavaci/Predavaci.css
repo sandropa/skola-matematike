@@ -191,8 +191,18 @@
   font-size: 14px;
   margin-top: 4px;
 }
+.edit-icon {
+  cursor: pointer;
+  margin-top: 8px;
+  text-align: right;
+  color: #1d4ed8;
+  transition: transform 0.2s ease;
+}
 
-  
+.edit-icon:hover {
+  transform: scale(1.2);
+}
+
 
   @media (max-width: 1024px) {
     .users-grid {
