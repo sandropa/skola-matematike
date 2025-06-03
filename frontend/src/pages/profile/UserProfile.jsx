@@ -18,7 +18,7 @@ function Profil() {
 
   const token = localStorage.getItem('token');
 
-  // Dohvati korisnika pri učitavanju
+
   useEffect(() => {
     axios.get(`http://localhost:8000/users/${id}`, {
       headers: {
@@ -95,29 +95,83 @@ function Profil() {
     });
   };
 
+  const handleImageUpload = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  axios.post(`http://localhost:8000/users/${id}/upload-photo`, formData, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'multipart/form-data'
+    }
+  })
+  .then(res => {
+    setUser(prev => ({ ...prev, profileImage: res.data.image_path }));
+    alert("Slika uspješno uploadovana.");
+  })
+  .catch(err => {
+    console.error('Greška pri uploadu slike:', err);
+    alert('Došlo je do greške prilikom uploada slike.');
+  });
+};
+
+
+
+const handleRemovePhoto = () => {
+  axios.delete(`http://localhost:8000/users/${id}/delete-photo`, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  })
+  .then(() => {
+    setUser(prev => ({ ...prev, profileImage: '' }));
+    alert("Profilna slika je uklonjena.");
+  })
+  .catch(err => {
+    console.error('Greška pri uklanjanju slike:', err);
+    alert("Došlo je do greške.");
+  });
+};
+
+
 
   return (
     <div>
-      <nav className="navbar">
-        <div className="navbar-left">
-          <a href="pocetna">
-            <img src="/logo.png" className="navbar-logo" alt="Logo" />
-          </a>
-        </div>
-        <div className="navbar-right">
-          <div className="navbar-item">Predavači</div>
-        </div>
-      </nav>
+ 
 
       <div className="profile-container">
         <div className="profile-sidebar">
           <div className="profile-image-container">
             {user.profileImage ? (
               <>
-                <img src={user.profileImage} alt="Profile" className="profile-image" />
-                <div className="image-overlay">
-                  <button className="change-photo-btn">Promijeni</button>
-                </div>
+              <img
+  src={`http://localhost:8000${user.profileImage}`}
+  alt="Profile"
+  className="profile-image"
+/>
+
+               <div className="image-overlay">
+  <label className="change-photo-btn">
+    Promijeni
+    <input
+      type="file"
+      accept="image/*"
+      style={{ display: 'none' }}
+      onChange={handleImageUpload}
+    />
+  </label>
+  <button
+  className="remove-photo-btn"
+  onClick={handleRemovePhoto}
+>
+  Ukloni
+</button>
+
+</div>
+
               </>
             ) : (
               <>
@@ -125,8 +179,24 @@ function Profil() {
                   {user.firstName[0]}{user.lastName[0]}
                 </div>
                 <div className="image-overlay">
-                  <button className="change-photo-btn">Promijeni</button>
-                </div>
+  <label className="change-photo-btn">
+    Promijeni
+    <input
+      type="file"
+      accept="image/*"
+      style={{ display: 'none' }}
+      onChange={handleImageUpload}
+    />
+  </label>
+  <button
+  className="remove-photo-btn"
+  onClick={handleRemovePhoto}
+>
+  Ukloni
+</button>
+
+</div>
+
               </>
             )}
           </div>

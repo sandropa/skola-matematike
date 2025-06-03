@@ -18,6 +18,11 @@ from server.schemas.user import CompleteInviteRequest
 from server.models.password_reset import PasswordReset
 import secrets
 from datetime import datetime, timezone, timedelta
+import shutil
+import os
+from uuid import uuid4
+
+from fastapi import UploadFile, File, Depends, HTTPException
 
 
 from typing import List
@@ -42,7 +47,7 @@ def login(user_login: UserLogin, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=400, detail="Invalid credentials")
     token = create_access_token(data={"sub": user.email})
-    return {"access_token": token, "token_type": "bearer", "user_id": user.id}
+    return {"access_token": token, "token_type": "bearer", "user_id": user.id, "role": user.role}
 
 @router.get("/", response_model=List[UserOut], summary="Get All Users")
 def read_all_users(db: Session = Depends(get_db)):
@@ -121,7 +126,7 @@ def send_email(to_email: str, invite_id: str):
     msg['Subject'] = "Invite za kreiranje predavačkog profila na Školi matematike"
     msg['From'] = EMAIL_ADDRESS
     msg['To'] = to_email
-    msg.set_content(f"Pozdrav, Pozvani ste da se registrujete kao predavač na platformi Škola Matematike. Kliknite na link ispod da biste kreirali svoj nalog:, http://127.0.0.1:8000/users/accept-invite/{invite_id}")
+    msg.set_content(f"Pozdrav, Pozvani ste da se registrujete kao predavač na platformi Škola Matematike. Kliknite na link ispod da biste kreirali svoj nalog:,http://localhost:5173/accept-invite/{invite_id}")
 
     try:
         with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as smtp:
@@ -135,11 +140,14 @@ def send_email(to_email: str, invite_id: str):
 
 @router.post("/send-invite")
 def send_invite(invite: InviteRequest, db: Session = Depends(get_db)):
-   
+    if invite.role not in ["user", "admin"]:
+        raise HTTPException(status_code=400, detail="Invalid role")
+
     new_invite = Invite(
         email=invite.to_email,
         name=invite.name,
-        surname=invite.surname
+        surname=invite.surname,
+        role=invite.role  
     )
     db.add(new_invite)
     db.commit()
@@ -148,6 +156,7 @@ def send_invite(invite: InviteRequest, db: Session = Depends(get_db)):
     send_email(invite.to_email, new_invite.id)
 
     return {"message": f"Invitation sent and saved for {invite.to_email}"}
+
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -170,13 +179,29 @@ def accept_invite(invite_id: int, request: CompleteInviteRequest, db: Session = 
         email=invite.email,
         name=invite.name,
         surname=invite.surname,
-        password=hash_password(request.password)
+        password=hash_password(request.password),
+        role=invite.role or "user" 
     )
 
     db.add(new_user)
+    db.delete(invite)
     db.commit()
 
     return {"message": "Registracija uspešna!"}
+@router.put("/{user_id}/role")
+def update_user_role(user_id: int, payload: dict, db: Session = Depends(get_db)):
+    new_role = payload.get("role")
+    if new_role not in ["user", "admin"]:
+        raise HTTPException(status_code=400, detail="Invalid role")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.role = new_role
+    db.commit()
+    return {"message": "Uloga uspješno promijenjena"}
+
 
 def send_reset_email(to_email: str, reset_link: str):
     msg = EmailMessage()
@@ -228,3 +253,53 @@ def reset_password(data: PasswordResetConfirm, db: Session = Depends(get_db)):
     db.commit()
 
     return {"message": "Lozinka je uspješno resetovana."}
+
+
+
+UPLOAD_DIR = "uploaded_images"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+@router.post("/{user_id}/upload-photo")
+def upload_profile_image(user_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    filename = f"{uuid4()}_{file.filename}"
+    file_path = os.path.join(UPLOAD_DIR, filename)
+
+  
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+   
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        
+        raise HTTPException(status_code=404, detail="Korisnik nije pronađen")
+    
+    if user.profile_image:
+        old_path = user.profile_image.lstrip("/")
+        if os.path.exists(old_path):
+            os.remove(old_path)
+
+  
+    image_url = f"/uploaded_images/{filename}"
+    user.profile_image = image_url
+
+    db.commit()
+
+    return {"message": "Slika uspešno uploadovana", "image_path": image_url}
+
+
+
+@router.delete("/{user_id}/delete-photo")
+def delete_profile_image(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Korisnik nije pronađen")
+
+    if user.profile_image:
+        image_path = user.profile_image.lstrip("/")
+        if os.path.exists(image_path):
+            os.remove(image_path)
+        user.profile_image = None
+        db.commit()
+
+    return {"message": "Profilna slika je obrisana"}

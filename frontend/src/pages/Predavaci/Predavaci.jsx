@@ -1,7 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Avatar, Modal, Box, TextField, Button, Typography } from '@mui/material';
+import { Snackbar, Alert } from '@mui/material';
+
 import './Predavaci.css';
+import EditIcon from '@mui/icons-material/Edit';
+
+
 
 function Predavaci() {
   const [lecturers, setLecturers] = useState([]);
@@ -10,6 +15,19 @@ function Predavaci() {
   const [newSurname, setNewSurname] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [showError, setShowError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [newRole, setNewRole] = useState('user');
+  const [selectedLecturer, setSelectedLecturer] = useState(null);
+  const [roleUpdateModalOpen, setRoleUpdateModalOpen] = useState(false);
+  const [updatedRole, setUpdatedRole] = useState('');
+  const role = localStorage.getItem("role");
+console.log("ROLE:", role);
+
+
+
+
 
 
   useEffect(() => {
@@ -21,12 +39,17 @@ function Predavaci() {
       .then(res => setLecturers(res.data))
       .catch(err => console.error('Greška pri dohvaćanju predavača:', err));
   };
+  const openRoleModal = (lecturer) => {
+  setSelectedLecturer(lecturer);
+  setUpdatedRole(lecturer.role || 'user');
+  setRoleUpdateModalOpen(true);
+};
 
   const getInitials = (name, surname) =>
     `${name?.[0] || ''}${surname?.[0] || ''}`.toUpperCase();
 
   const handleAddLecturer = () => {
-    const novi = { name: newName, surname: newSurname, to_email: newEmail };
+    const novi = { name: newName, surname: newSurname, to_email: newEmail, role: newRole };
     axios.post('http://localhost:8000/users/send-invite', novi)
       .then(() => {
         fetchLecturers();
@@ -34,15 +57,34 @@ function Predavaci() {
         setNewName('');
         setNewSurname('');
         setNewEmail('');
+         setShowSuccess(true)
       })
-      .catch(err => console.error('Greška pri dodavanju predavača:', err));
-  };
+    .catch(err => {
+  console.error('Greška pri dodavanju predavača:', err);
+  setErrorMessage('Email nije ispravan ili već postoji.');
+  setShowError(true);
+});
+
+};
 
   const filteredLecturers = lecturers.filter((lecturer) =>
     (`${lecturer.name} ${lecturer.surname}`).toLowerCase().includes(searchTerm.toLowerCase()) ||
     lecturer.email.toLowerCase().includes(searchTerm.toLowerCase())
   );
-  
+  const handleRoleUpdate = () => {
+  axios.put(`http://localhost:8000/users/${selectedLecturer.id}/role`, {
+    role: updatedRole
+  })
+    .then(() => {
+      setRoleUpdateModalOpen(false);
+      fetchLecturers(); 
+    })
+    .catch(err => {
+      console.error('Greška pri izmjeni uloge:', err);
+      alert('Greška pri izmjeni uloge.');
+    });
+};
+
 
   return (
     <>
@@ -50,16 +92,7 @@ function Predavaci() {
      
 
 
-      <nav className="navbar">
-        <div className="navbar-left">
-          <a href="/pocetna">
-            <img src="/logo.png" className="navbar-logo" alt="Logo" />
-          </a>
-        </div>
-        <div className="navbar-right">
-        
-        </div>
-      </nav>
+      
 
       <div className="users-container">
         <div className="users-content">
@@ -84,9 +117,12 @@ function Predavaci() {
             </div>
 
             <div className="filters-container">
-              <button className="filter-button active" onClick={() => setOpenModal(true)}>
-                Dodaj predavača
-              </button>
+              {role === "admin" && (
+  <button className="filter-button active" onClick={() => setOpenModal(true)}>
+    Dodaj predavača
+  </button>
+)}
+
             </div>
           </div>
 
@@ -95,13 +131,22 @@ function Predavaci() {
 
               <div className="user-card" key={lecturer.id}>
                 <div className="user-avatar">
-                  <Avatar sx={{ width: 80, height: 80 }}>
-                    {getInitials(lecturer.name, lecturer.surname)}
-                  </Avatar>
+                 <Avatar
+  sx={{ width: 80, height: 80 }}
+  src={lecturer.profile_image ? `http://localhost:8000${lecturer.profile_image}` : undefined}
+>
+  {!lecturer.profile_image && getInitials(lecturer.name, lecturer.surname)}
+</Avatar>
+
                 </div>
                 <div className="user-info">
                   <h3 className="user-name">{lecturer.name} {lecturer.surname}</h3>
                   <p className="user-email">{lecturer.email}</p>
+                  {role === "admin" && (
+  <EditIcon className="edit-icon" onClick={() => openRoleModal(lecturer)} />
+)}
+
+
                   <div className="user-tags">
                     {lecturer.tags?.map((tag, index) => (
                       <span className="tag" key={index}>{tag}</span>
@@ -168,6 +213,18 @@ function Predavaci() {
       onChange={e => setNewEmail(e.target.value)}
       fullWidth
     />
+    <TextField
+  label="Uloga"
+  select
+  value={newRole}
+  onChange={e => setNewRole(e.target.value)}
+  fullWidth
+  SelectProps={{ native: true }}
+>
+  <option value="user">User</option>
+  <option value="admin">Admin</option>
+</TextField>
+
 
     <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2, mt: 1 }}>
       <Button
@@ -201,8 +258,72 @@ function Predavaci() {
   </Box>
 </Modal>
 
+<Snackbar
+  open={showSuccess}
+  autoHideDuration={4000}
+  onClose={() => setShowSuccess(false)}
+  anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+>
+  <Alert onClose={() => setShowSuccess(false)} severity="success" sx={{ width: '100%' }}>
+    Pozivnica je uspješno poslana!
+  </Alert>
+</Snackbar>
+
+<Snackbar
+  open={showError}
+  autoHideDuration={5000}
+  onClose={() => setShowError(false)}
+  anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+>
+  <Alert onClose={() => setShowError(false)} severity="error" sx={{ width: '100%' }}>
+    {errorMessage}
+  </Alert>
+</Snackbar>
+<Modal open={roleUpdateModalOpen} onClose={() => setRoleUpdateModalOpen(false)}>
+  <Box
+    sx={{
+      position: 'absolute',
+      top: '50%',
+      left: '50%',
+      transform: 'translate(-50%, -50%)',
+      bgcolor: '#ffffff',
+      borderRadius: 3,
+      boxShadow: 24,
+      width: 420,
+      p: 4,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 3
+    }}
+  >
+    <Typography variant="h6">Promjena uloge</Typography>
+
+    <Typography variant="body1">
+      {selectedLecturer?.name} {selectedLecturer?.surname} ({selectedLecturer?.email})
+    </Typography>
+
+    <TextField
+      select
+      label="Uloga"
+      value={updatedRole}
+      onChange={(e) => setUpdatedRole(e.target.value)}
+      SelectProps={{ native: true }}
+      fullWidth
+    >
+      <option value="user">User</option>
+      <option value="admin">Admin</option>
+    </TextField>
+
+    <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
+      <Button onClick={() => setRoleUpdateModalOpen(false)}>Otkaži</Button>
+      <Button variant="contained" onClick={handleRoleUpdate}>Sačuvaj</Button>
+    </Box>
+  </Box>
+</Modal>
+
     </>
   );
+
 }
 
 export default Predavaci;
