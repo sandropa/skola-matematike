@@ -5,16 +5,8 @@ from typing import Dict, Any, AsyncIterator, List, Tuple, Optional
 from google import genai
 from google.genai import types
 
-from fastapi.concurrency import run_in_threadpool
-
-try:
-    from ..schemas.problemset import LectureProblemsOutput # Import the AI output model
-except ImportError as e:
-    logging.error(f"Failed to import Pydantic schema LectureProblemsOutput: {e}")
-    raise
 
 from ..config import settings
-
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +39,8 @@ class GeminiService:
         self,
         model: str,
         system_prompt: str,
-        shots: List[Tuple[str, str]], # list of (user_example, model_example)
         user_input: str,
+        shots: Optional[List[Tuple[str, str]]] = None, # list of (user_example, model_example)
         temperature: float = 0.0,
         top_p: float = 1.0,
         thinking_budget: Optional[int] = None,
@@ -62,13 +54,14 @@ class GeminiService:
         contents: List[types.Content] = []
 
         # Add few-shot examples
-        for user_ex, model_ex in shots:
-            contents.append(
-                types.Content(role="user", parts=[types.Part.from_text(text=user_ex)])
-            )
-            contents.append(
-                types.Content(role="model", parts=[types.Part.from_text(text=model_ex)])
-            )
+        if shots:
+            for user_ex, model_ex in shots:
+                contents.append(
+                    types.Content(role="user", parts=[types.Part.from_text(text=user_ex)])
+                )
+                contents.append(
+                    types.Content(role="model", parts=[types.Part.from_text(text=model_ex)])
+                )
         # Add final user input
         contents.append(
             types.Content(role="user", parts=[types.Part.from_text(text=user_input)])
