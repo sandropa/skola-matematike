@@ -175,7 +175,7 @@ export default function LatexEditor() {
 
               // (Optional) tiny delay to make the “typing” feel more fluid
               //    you can remove or shorten/lengthen this as you prefer.
-              await new Promise((resolve) => setTimeout(resolve, 30));
+              await new Promise((resolve) => setTimeout(resolve, 10));
             }
           }
         }
