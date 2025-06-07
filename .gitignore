@@ -101,3 +101,6 @@ frontend/Thumbs.db
 frontend/.vite/
 
 llm_prompt_context.py
+
+
+uploaded_images
