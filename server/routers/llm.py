@@ -23,7 +23,7 @@ async def hello_stream(
     stream = await ai_service.hello(message=request.message)
     return StreamingResponse(stream, media_type="application/json")
 
-@router.post("/fix_latex", summary="Fix LaTeX code.")
+@router.post("/fix-latex", summary="Fix LaTeX code.")
 async def fix_latex(
     request: LatexRequest = Body(...),
     gemini_service: GeminiService = Depends(get_gemini_service),

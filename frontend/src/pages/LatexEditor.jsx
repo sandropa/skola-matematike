@@ -55,6 +55,133 @@ export default function LatexEditor() {
         editorRef.current = editor;
         monacoRef.current = monaco; // Store monaco instance
 
+    // Add the “Fix LaTeX (Streaming)” action
+    editor.addAction({
+      id: "fix-latex-streaming",
+      label: "Fix LaTeX (Streaming)",
+      contextMenuGroupId: "1_modification",
+      contextMenuOrder: 1.6, // just put it right after your other actions
+      run: async function (ed) {
+        // Grab our monaco instance so we can access Range/ScrollType, etc.
+        const monacoInstance = monacoRef.current;
+        if (!monacoInstance) {
+          console.error("Monaco instance not found.");
+          return;
+        }
+
+        // 3) Check if there’s a non-empty selection
+        const selection = ed.getSelection();
+        if (!selection || selection.isEmpty()) {
+          console.log("No text selected to fix.");
+          return;
+        }
+
+        // 4) Pull the selected text out
+        const model = ed.getModel();
+        if (!model) {
+          console.error("Editor model is missing.");
+          return;
+        }
+        const selectedText = model.getValueInRange(selection);
+        if (selectedText.length === 0) {
+          return;
+        }
+
+        // 5) Immediately clear the selected text so users see feedback
+        //    (this collapses the selection to a single cursor at the start)
+        ed.executeEdits("fix-latex-init", [
+          {
+            range: selection,
+            text: "",
+            forceMoveMarkers: true,
+          },
+        ]);
+
+        // 6) After clearing, get the new cursor position (it’s at the start of the old selection)
+        let currentPosition = ed.getSelection()?.getStartPosition();
+        if (!currentPosition) {
+          console.error("Could not determine insertion position.");
+          return;
+        }
+
+        // 7) Call your FastAPI endpoint with fetch. Adjust URL if needed.
+        //    We assume same-origin or proper CORS.
+        let response;
+        try {
+          response = await fetch(`${API_BASE_URL}/llm/fix-latex`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ code: selectedText }),
+          });
+        } catch (err) {
+          console.error("Network error while calling /llm/fix-latex:", err);
+          return;
+        }
+
+        if (!response.ok || !response.body) {
+          console.error(
+            "Server returned error or no response body:",
+            response.status,
+            response.statusText
+          );
+          return;
+        }
+
+        // 8) Stream the response body. We assume the backend is streaming raw text chunks
+        //    (i.e. chunked response containing UTF-8 text). If you’re actually streaming JSON
+        //    tokens, you’d need a small JSON-parser here. This example treats each chunk as plain text.
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        let done = false;
+        while (!done) {
+          const { value, done: readerDone } = await reader.read();
+          if (readerDone) {
+            done = true;
+            break;
+          }
+          if (value) {
+            // Decode the bytes → string
+            const chunkStr = decoder.decode(value, { stream: true });
+            // Insert each character one by one (streaming effect).
+            for (const char of chunkStr) {
+              // Build a zero-length range at currentPosition
+              const insertRange = new monacoInstance.Range(
+                currentPosition.lineNumber,
+                currentPosition.column,
+                currentPosition.lineNumber,
+                currentPosition.column
+              );
+
+              // Execute the edit to insert just this character
+              ed.executeEdits("fix-latex-stream-char", [
+                {
+                  range: insertRange,
+                  text: char,
+                  forceMoveMarkers: true,
+                },
+              ]);
+
+              // Update the cursor to the end of what we just typed
+              currentPosition = ed.getSelection().getEndPosition();
+
+              // Scroll to make sure the cursor is visible
+              ed.revealPosition(
+                currentPosition,
+                monacoInstance.editor.ScrollType.Smooth
+              );
+
+              // (Optional) tiny delay to make the “typing” feel more fluid
+              //    you can remove or shorten/lengthen this as you prefer.
+              await new Promise((resolve) => setTimeout(resolve, 30));
+            }
+          }
+        }
+      },
+    });
+
         // --- Add custom action to context menu ---
         editor.addAction({
             id: 'replace-with-x-streaming',
