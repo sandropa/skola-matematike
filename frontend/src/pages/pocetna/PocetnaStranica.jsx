@@ -48,8 +48,8 @@ const filtriraniZadaci = problems.filter((problem) =>
 
 useEffect(() => {
   if (viewMode === "problems") {
-    axios
-      .get("http://localhost:8000/problems")
+  
+        axios.get("http://localhost:8000/problems/with-lecture")
       .then((res) => {
         setProblems(res.data);
       })
@@ -162,6 +162,7 @@ const copyToClipboard = (text, id) => {
         <tr>
           <th>Tekst zadatka</th>
           <th>Kategorija</th>
+          <th>Predavanje</th>
           <th>Akcija</th>
         </tr>
       </thead>
@@ -171,6 +172,7 @@ const copyToClipboard = (text, id) => {
           <tr key={index}>
             <td>{problem.latex_text}</td>
             <td>{problem.category}</td>
+            <td>{problem.lecture_title || "Nepoznato"}</td> 
             <td>
      <button
   type="button"

@@ -41,3 +41,12 @@ class ProblemSchema(ProblemBase):
     model_config = ConfigDict(
         from_attributes = True # Replaces orm_mode=True
     )
+    
+    
+class ProblemWithLectureSchema(BaseModel):
+    id: int
+    latex_text: str
+    category: str
+    lecture_title: Optional[str] = None
+
+  
