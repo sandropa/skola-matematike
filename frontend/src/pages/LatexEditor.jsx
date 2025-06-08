@@ -63,10 +63,26 @@ function registerFeatures(editor, monaco) {
           });
         } catch (err) {
           console.error(`Network error for ${id}:`, err);
+          // Optionally, re-insert original text or show an error in editor
+          const insertRange = new monaco.Range(
+            position.lineNumber,
+            position.column,
+            position.lineNumber,
+            position.column
+          );
+          ed.executeEdits(id, [{ range: insertRange, text: selectedText, forceMoveMarkers: true }]);
           return;
         }
         if (!response.ok || !response.body) {
           console.error(`Error from ${route}:`, response.status, response.statusText);
+          // Optionally, re-insert original text or show an error in editor
+          const insertRange = new monaco.Range(
+            position.lineNumber,
+            position.column,
+            position.lineNumber,
+            position.column
+          );
+          ed.executeEdits(id, [{ range: insertRange, text: selectedText, forceMoveMarkers: true }]);
           return;
         }
 
@@ -88,7 +104,7 @@ function registerFeatures(editor, monaco) {
               ed.executeEdits(id, [{ range: insertRange, text: char, forceMoveMarkers: true }]);
               position = ed.getSelection().getEndPosition();
               ed.revealPosition(position, monaco.editor.ScrollType.Smooth);
-              await new Promise(res => setTimeout(res, 10));
+              await new Promise(res => setTimeout(res, 10)); // Small delay for smoother typing
             }
           }
         } else {
@@ -120,7 +136,7 @@ function usePdfCompiler(editorRef) {
 
     setLoading(true);
     setError(null);
-    if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+    if (pdfUrl) URL.revokeObjectURL(pdfUrl); // Clean up previous blob URL
 
     try {
       const res = await fetch(
@@ -131,16 +147,25 @@ function usePdfCompiler(editorRef) {
           body: JSON.stringify({ latex_code: code }),
         }
       );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        // Try to get error message from backend if available
+        let errorMsg = `HTTP ${res.status}`;
+        try {
+            const errorData = await res.json(); // Or .text() if it's not JSON
+            if (errorData && errorData.detail) errorMsg = errorData.detail;
+            else if (typeof errorData === 'string') errorMsg = errorData;
+        } catch (e) { /* Ignore if parsing error body fails */ }
+        throw new Error(errorMsg);
+      }
       const blob = await res.blob();
-      if (blob.type !== 'application/pdf') throw new Error('Invalid PDF');
+      if (blob.type !== 'application/pdf') throw new Error('Invalid PDF received from server');
       setPdfUrl(URL.createObjectURL(blob));
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [editorRef, pdfUrl]);
+  }, [editorRef, pdfUrl]); // Added pdfUrl to dependencies for cleanup
 
   useEffect(() => {
     const handler = e => {
@@ -153,9 +178,10 @@ function usePdfCompiler(editorRef) {
     return () => window.removeEventListener('keydown', handler);
   }, [compile]);
 
+  // Cleanup blob URL on component unmount
   useEffect(() => () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); }, [pdfUrl]);
 
-  return { pdfUrl, isLoading, error };
+  return { pdfUrl, isLoading, error, compile }; // Expose compile if needed elsewhere
 }
 
 // 4) Editor panel
@@ -183,15 +209,34 @@ function EditorPanel({ code, onChange, editorRef, monacoRef }) {
         <Typography variant="subtitle2" sx={{ fontWeight: 'medium' }}>LaTeX Source (Ctrl+S to Compile)</Typography>
       </Box>
       <Box sx={{ flexGrow: 1, position: 'relative', overflow: 'hidden' }}>
-        <Editor
-          height="100%"
-          language="latex"
-          value={code}
-          onMount={handleMount}
-          onChange={onChange}
-          theme="vs"
-          options={{ minimap: { enabled: false }, fontSize: 14, wordWrap: 'on', lineNumbers: 'on', scrollBeyondLastLine: false, automaticLayout: true, renderLineHighlight: 'gutter', tabSize: 2, insertSpaces: true }}
-        />
+        {/* Show a loader while code is null (being fetched) */}
+        {code === null ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+            <CircularProgress />
+            <Typography sx={{ ml: 2 }}>Loading template...</Typography>
+          </Box>
+        ) : (
+          <Editor
+            height="100%"
+            language="latex"
+            value={code}
+            onMount={handleMount}
+            onChange={onChange}
+            theme="vs" // You can try "vs-dark" too
+            options={{
+              minimap: { enabled: false },
+              fontSize: 14,
+              wordWrap: 'on',
+              lineNumbers: 'on',
+              scrollBeyondLastLine: false,
+              automaticLayout: true,
+              renderLineHighlight: 'gutter', // 'all', 'line', 'none', 'gutter'
+              tabSize: 2,
+              insertSpaces: true,
+              padding: { top: 10, bottom: 10 }, // Add some padding
+            }}
+          />
+        )}
       </Box>
     </Paper>
   );
@@ -218,11 +263,11 @@ function PreviewPanel({ pdfUrl, isLoading, error }) {
             <Typography variant="body2" sx={{ mt: 1 }}>Compiling PDF...</Typography>
           </Box>
         ) : error ? (
-          <Alert severity="error" sx={{ width: '95%', m: 'auto' }}>{error}</Alert>
+          <Alert severity="error" sx={{ width: '95%', m: 'auto' }}>Error: {error}</Alert>
         ) : pdfUrl ? (
           <iframe src={pdfUrl} title="PDF Preview" style={{ width: '100%', height: '100%', border: 'none' }} />
         ) : (
-          <Typography variant="body2" color="text.secondary" align="center">Preview will appear here after compilation.<br/>Press Ctrl+S (or Cmd+S).</Typography>
+          <Typography variant="body2" color="text.secondary" align="center">Preview will appear here after compilation.<br/>Edit the LaTeX source and press Ctrl+S (or Cmd+S).</Typography>
         )}
       </Box>
     </Paper>
@@ -231,16 +276,42 @@ function PreviewPanel({ pdfUrl, isLoading, error }) {
 
 // 6) Main component
 export default function LatexEditor() {
-  const [code, setCode] = useState('% Welcome to the LaTeX Editor!\n\% Edit, then Ctrl+S to compile.\n\n\\documentclass{article}\n\n\\begin{document}\n\nHello, world!\n\n\\end{document}');
+  // Initialize code as null to indicate it's being loaded
+  const [code, setCode] = useState(null);
+  const [templateError, setTemplateError] = useState(null); // For errors loading the template
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
-  const { pdfUrl, isLoading, error } = usePdfCompiler(editorRef);
+  const { pdfUrl, isLoading: isCompiling, error: compileError } = usePdfCompiler(editorRef);
+
+  // Effect to load the template
+  useEffect(() => {
+    fetch('/latex_template.tex') // Path relative to the public folder
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status} while fetching template.`);
+        }
+        return response.text();
+      })
+      .then(text => {
+        setCode(text);
+      })
+      .catch(err => {
+        console.error("Failed to load LaTeX template:", err);
+        setTemplateError(err.message);
+        // Fallback to a default template if loading fails
+        setCode('% Welcome to the LaTeX Editor!\n% Failed to load template.\n\n\\documentclass{article}\n\n\\begin{document}\n\nHello, world!\n\n\\end{document}');
+      });
+  }, []); // Empty dependency array ensures this runs only once on mount
+
+  if (templateError && code === null) { // Show error if template failed and no fallback yet
+    return <Alert severity="error">Failed to load LaTeX template: {templateError}</Alert>;
+  }
 
   return (
     <Box sx={{ height: 'calc(100vh - 64px)', display: 'flex', p: 2, bgcolor: '#f5f5f5' }}>
       <EditorPanel code={code} onChange={v => setCode(v || '')} editorRef={editorRef} monacoRef={monacoRef} />
       <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
-      <PreviewPanel pdfUrl={pdfUrl} isLoading={isLoading} error={error} />
+      <PreviewPanel pdfUrl={pdfUrl} isLoading={isCompiling} error={compileError} />
     </Box>
   );
 }
