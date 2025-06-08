@@ -6,9 +6,10 @@ import {
   Paper,
   CircularProgress,
   Alert,
-  Divider
+  Divider,
+  Snackbar
 } from '@mui/material';
-import { Code } from 'lucide-react';
+import { Code, ImageIcon } from 'lucide-react';
 
 // Base API URL for your backend
 const API_BASE_URL = "http://localhost:8000";
@@ -33,6 +34,69 @@ const features = [
   },
   // Add new features here
 ];
+
+// Helper function to handle image paste and upload
+async function handleImagePaste(editor, monaco, file) {
+  if (!file || !file.type.startsWith('image/')) {
+    return false; // Not an image
+  }
+
+  const position = editor.getPosition();
+  if (!position) return false;
+
+  // Create FormData for the image upload
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/llm/extract-latex-from-image`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok || !response.body) {
+      console.error('Error from image-to-latex API:', response.status, response.statusText);
+      return false;
+    }
+
+    // Stream the response character by character
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let currentPosition = position;
+    let done = false;
+
+    while (!done) {
+      const { value, done: readerDone } = await reader.read();
+      if (readerDone) {
+        done = true;
+        break;
+      }
+
+      const chunk = decoder.decode(value, { stream: true });
+      for (const char of chunk) {
+        const insertRange = new monaco.Range(
+          currentPosition.lineNumber,
+          currentPosition.column,
+          currentPosition.lineNumber,
+          currentPosition.column
+        );
+        editor.executeEdits('image-to-latex', [{ 
+          range: insertRange, 
+          text: char, 
+          forceMoveMarkers: true 
+        }]);
+        currentPosition = editor.getSelection().getEndPosition();
+        editor.revealPosition(currentPosition, monaco.editor.ScrollType.Smooth);
+        await new Promise(res => setTimeout(res, 25)); // Small delay for smoother typing
+      }
+    }
+
+    return true; // Successfully processed
+  } catch (error) {
+    console.error('Network error during image-to-latex conversion:', error);
+    return false;
+  }
+}
 
 // 2) Register all features on monaco editor
 function registerFeatures(editor, monaco) {
@@ -63,7 +127,6 @@ function registerFeatures(editor, monaco) {
           });
         } catch (err) {
           console.error(`Network error for ${id}:`, err);
-          // Optionally, re-insert original text or show an error in editor
           const insertRange = new monaco.Range(
             position.lineNumber,
             position.column,
@@ -75,7 +138,6 @@ function registerFeatures(editor, monaco) {
         }
         if (!response.ok || !response.body) {
           console.error(`Error from ${route}:`, response.status, response.statusText);
-          // Optionally, re-insert original text or show an error in editor
           const insertRange = new monaco.Range(
             position.lineNumber,
             position.column,
@@ -104,7 +166,7 @@ function registerFeatures(editor, monaco) {
               ed.executeEdits(id, [{ range: insertRange, text: char, forceMoveMarkers: true }]);
               position = ed.getSelection().getEndPosition();
               ed.revealPosition(position, monaco.editor.ScrollType.Smooth);
-              await new Promise(res => setTimeout(res, 10)); // Small delay for smoother typing
+              await new Promise(res => setTimeout(res, 25));
             }
           }
         } else {
@@ -136,7 +198,7 @@ function usePdfCompiler(editorRef) {
 
     setLoading(true);
     setError(null);
-    if (pdfUrl) URL.revokeObjectURL(pdfUrl); // Clean up previous blob URL
+    if (pdfUrl) URL.revokeObjectURL(pdfUrl);
 
     try {
       const res = await fetch(
@@ -148,12 +210,11 @@ function usePdfCompiler(editorRef) {
         }
       );
       if (!res.ok) {
-        // Try to get error message from backend if available
         let errorMsg = `HTTP ${res.status}`;
         try {
-            const errorData = await res.json(); // Or .text() if it's not JSON
-            if (errorData && errorData.detail) errorMsg = errorData.detail;
-            else if (typeof errorData === 'string') errorMsg = errorData;
+          const errorData = await res.json();
+          if (errorData && errorData.detail) errorMsg = errorData.detail;
+          else if (typeof errorData === 'string') errorMsg = errorData;
         } catch (e) { /* Ignore if parsing error body fails */ }
         throw new Error(errorMsg);
       }
@@ -165,7 +226,7 @@ function usePdfCompiler(editorRef) {
     } finally {
       setLoading(false);
     }
-  }, [editorRef, pdfUrl]); // Added pdfUrl to dependencies for cleanup
+  }, [editorRef, pdfUrl]);
 
   useEffect(() => {
     const handler = e => {
@@ -178,18 +239,81 @@ function usePdfCompiler(editorRef) {
     return () => window.removeEventListener('keydown', handler);
   }, [compile]);
 
-  // Cleanup blob URL on component unmount
   useEffect(() => () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); }, [pdfUrl]);
 
-  return { pdfUrl, isLoading, error, compile }; // Expose compile if needed elsewhere
+  return { pdfUrl, isLoading, error, compile };
 }
 
-// 4) Editor panel
-function EditorPanel({ code, onChange, editorRef, monacoRef }) {
+// 4) Editor panel with image paste handling
+function EditorPanel({ code, onChange, editorRef, monacoRef, onImageProcessing }) {
+  const [isProcessingImage, setIsProcessingImage] = useState(false);
+
   const handleMount = (editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
     registerFeatures(editor, monaco);
+
+    // Add paste event listener for image handling
+    editor.onDidPaste(async (e) => {
+      // Check if clipboard contains files
+      if (navigator.clipboard && navigator.clipboard.read) {
+        try {
+          const clipboardItems = await navigator.clipboard.read();
+          for (const clipboardItem of clipboardItems) {
+            for (const type of clipboardItem.types) {
+              if (type.startsWith('image/')) {
+                const blob = await clipboardItem.getType(type);
+                const file = new File([blob], 'pasted-image', { type });
+                
+                setIsProcessingImage(true);
+                onImageProcessing(true);
+                
+                const success = await handleImagePaste(editor, monaco, file);
+                
+                setIsProcessingImage(false);
+                onImageProcessing(false);
+                
+                if (success) {
+                  return; // Successfully processed, exit
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error reading clipboard:', error);
+          setIsProcessingImage(false);
+          onImageProcessing(false);
+        }
+      }
+    });
+
+    // Alternative: Listen for native paste events (fallback)
+    const pasteHandler = async (e) => {
+      if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
+        const file = e.clipboardData.files[0];
+        if (file && file.type.startsWith('image/')) {
+          e.preventDefault();
+          
+          setIsProcessingImage(true);
+          onImageProcessing(true);
+          
+          const success = await handleImagePaste(editor, monaco, file);
+          
+          setIsProcessingImage(false);
+          onImageProcessing(false);
+        }
+      }
+    };
+
+    const editorDomNode = editor.getDomNode();
+    if (editorDomNode) {
+      editorDomNode.addEventListener('paste', pasteHandler);
+      
+      // Clean up on unmount
+      return () => {
+        editorDomNode.removeEventListener('paste', pasteHandler);
+      };
+    }
   };
 
   return (
@@ -201,15 +325,51 @@ function EditorPanel({ code, onChange, editorRef, monacoRef }) {
         flexDirection: 'column',
         borderRadius: 2,
         mr: { xs: 0.5, sm: 1 },
-        overflow: 'hidden'
+        overflow: 'hidden',
+        position: 'relative'
       }}
     >
       <Box sx={{ p: 1, bgcolor: '#e9e9e9', display: 'flex', alignItems: 'center', borderBottom: '1px solid #ddd' }}>
         <Code size={18} style={{ marginRight: '8px' }} />
-        <Typography variant="subtitle2" sx={{ fontWeight: 'medium' }}>LaTeX Source (Ctrl+S to Compile)</Typography>
+        <Typography variant="subtitle2" sx={{ fontWeight: 'medium' }}>
+          LaTeX Source (Ctrl+S to Compile, Ctrl+V to paste images)
+        </Typography>
+        {isProcessingImage && (
+          <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center' }}>
+            <CircularProgress size={16} sx={{ mr: 1 }} />
+            <Typography variant="caption" color="primary">
+              Converting image...
+            </Typography>
+          </Box>
+        )}
       </Box>
+      
+      {/* Processing overlay */}
+      {isProcessingImage && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            bgcolor: 'rgba(255, 255, 255, 0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            flexDirection: 'column'
+          }}
+        >
+          <CircularProgress size={48} />
+          <Typography variant="body2" sx={{ mt: 2 }}>
+            <ImageIcon size={16} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
+            Converting image to LaTeX...
+          </Typography>
+        </Box>
+      )}
+      
       <Box sx={{ flexGrow: 1, position: 'relative', overflow: 'hidden' }}>
-        {/* Show a loader while code is null (being fetched) */}
         {code === null ? (
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
             <CircularProgress />
@@ -222,7 +382,7 @@ function EditorPanel({ code, onChange, editorRef, monacoRef }) {
             value={code}
             onMount={handleMount}
             onChange={onChange}
-            theme="vs" // You can try "vs-dark" too
+            theme="vs"
             options={{
               minimap: { enabled: false },
               fontSize: 14,
@@ -230,10 +390,10 @@ function EditorPanel({ code, onChange, editorRef, monacoRef }) {
               lineNumbers: 'on',
               scrollBeyondLastLine: false,
               automaticLayout: true,
-              renderLineHighlight: 'gutter', // 'all', 'line', 'none', 'gutter'
+              renderLineHighlight: 'gutter',
               tabSize: 2,
               insertSpaces: true,
-              padding: { top: 10, bottom: 10 }, // Add some padding
+              padding: { top: 10, bottom: 10 },
             }}
           />
         )}
@@ -267,7 +427,11 @@ function PreviewPanel({ pdfUrl, isLoading, error }) {
         ) : pdfUrl ? (
           <iframe src={pdfUrl} title="PDF Preview" style={{ width: '100%', height: '100%', border: 'none' }} />
         ) : (
-          <Typography variant="body2" color="text.secondary" align="center">Preview will appear here after compilation.<br/>Edit the LaTeX source and press Ctrl+S (or Cmd+S).</Typography>
+          <Typography variant="body2" color="text.secondary" align="center">
+            Preview will appear here after compilation.<br/>
+            Edit the LaTeX source and press Ctrl+S (or Cmd+S).<br/>
+            <strong>Paste images with Ctrl+V to convert them to LaTeX!</strong>
+          </Typography>
         )}
       </Box>
     </Paper>
@@ -276,16 +440,26 @@ function PreviewPanel({ pdfUrl, isLoading, error }) {
 
 // 6) Main component
 export default function LatexEditor() {
-  // Initialize code as null to indicate it's being loaded
   const [code, setCode] = useState(null);
-  const [templateError, setTemplateError] = useState(null); // For errors loading the template
+  const [templateError, setTemplateError] = useState(null);
+  const [isProcessingImage, setIsProcessingImage] = useState(false);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
   const { pdfUrl, isLoading: isCompiling, error: compileError } = usePdfCompiler(editorRef);
 
+  const handleImageProcessing = (processing) => {
+    setIsProcessingImage(processing);
+    if (processing) {
+      setSnackbarMessage('Processing image... LaTeX code will appear shortly.');
+      setSnackbarOpen(true);
+    }
+  };
+
   // Effect to load the template
   useEffect(() => {
-    fetch('/latex_template.tex') // Path relative to the public folder
+    fetch('/latex_template.tex')
       .then(response => {
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status} while fetching template.`);
@@ -298,20 +472,32 @@ export default function LatexEditor() {
       .catch(err => {
         console.error("Failed to load LaTeX template:", err);
         setTemplateError(err.message);
-        // Fallback to a default template if loading fails
         setCode('% Welcome to the LaTeX Editor!\n% Failed to load template.\n\n\\documentclass{article}\n\n\\begin{document}\n\nHello, world!\n\n\\end{document}');
       });
-  }, []); // Empty dependency array ensures this runs only once on mount
+  }, []);
 
-  if (templateError && code === null) { // Show error if template failed and no fallback yet
+  if (templateError && code === null) {
     return <Alert severity="error">Failed to load LaTeX template: {templateError}</Alert>;
   }
 
   return (
     <Box sx={{ height: 'calc(100vh - 64px)', display: 'flex', p: 2, bgcolor: '#f5f5f5' }}>
-      <EditorPanel code={code} onChange={v => setCode(v || '')} editorRef={editorRef} monacoRef={monacoRef} />
+      <EditorPanel 
+        code={code} 
+        onChange={v => setCode(v || '')} 
+        editorRef={editorRef} 
+        monacoRef={monacoRef}
+        onImageProcessing={handleImageProcessing}
+      />
       <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
       <PreviewPanel pdfUrl={pdfUrl} isLoading={isCompiling} error={compileError} />
+      
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={4000}
+        onClose={() => setSnackbarOpen(false)}
+        message={snackbarMessage}
+      />
     </Box>
   );
 }
