@@ -67,7 +67,7 @@ function Profil() {
     })
     .catch(err => {
       console.error('Greška pri ažuriranju:', err);
-      showSnackbar('Došlo je do greške.');
+      showSnackbar('Došlo je do greške.',"error");
     });
   };
 
@@ -75,12 +75,12 @@ function Profil() {
     e.preventDefault();
     console.log("password", user)
     if (user.newPassword.length < 8) {
-    showSnackbar('Nova lozinka mora imati najmanje 8 karaktera.');
+    showSnackbar('Nova lozinka mora imati najmanje 8 karaktera.',"error");
       return;
     }
 
     if (user.newPassword !== user.confirmPassword) {
-      showSnackbar('Lozinke se ne podudaraju.');
+      showSnackbar('Lozinke se ne podudaraju.',"error");
       return;
     }
 
@@ -102,7 +102,7 @@ function Profil() {
       if (err.response && err.response.data && err.response.data.detail) {
         showSnackbar(`Greška: ${err.response.data.detail}`);
       } else {
-        showSnackbar('Došlo je do greške prilikom promjene lozinke.');
+        showSnackbar('Došlo je do greške prilikom promjene lozinke.',"error");
       }
     });
   };
@@ -126,7 +126,7 @@ function Profil() {
   })
   .catch(err => {
     console.error('Greška pri uploadu slike:', err);
-    showSnackbar('Došlo je do greške prilikom uploada slike.');
+    showSnackbar('Došlo je do greške prilikom uploada slike.',"error");
   });
 };
 
@@ -144,7 +144,7 @@ const handleRemovePhoto = () => {
   })
   .catch(err => {
     console.error('Greška pri uklanjanju slike:', err);
-    showSnackbar("Došlo je do greške.");
+    showSnackbar("Došlo je do greške.","error");
   });
 };
 
