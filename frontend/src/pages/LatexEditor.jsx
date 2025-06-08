@@ -231,7 +231,7 @@ function PreviewPanel({ pdfUrl, isLoading, error }) {
 
 // 6) Main component
 export default function LatexEditor() {
-  const [code, setCode] = useState('% Welcome to the LaTeX Editor!\n\% Edit, then Ctrl+S to compile.\n\n\\documentclass{article}\n\n\\begin{document}Hello, world!\n\n\\end{document}');
+  const [code, setCode] = useState('% Welcome to the LaTeX Editor!\n\% Edit, then Ctrl+S to compile.\n\n\\documentclass{article}\n\n\\begin{document}\n\nHello, world!\n\n\\end{document}');
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
   const { pdfUrl, isLoading, error } = usePdfCompiler(editorRef);
