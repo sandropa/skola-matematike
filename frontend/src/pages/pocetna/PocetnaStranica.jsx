@@ -41,6 +41,11 @@ export default function Pocetna() {
   project.title.toLowerCase().includes(searchTerm.toLowerCase())
 );
 
+const filtriraniZadaci = problems.filter((problem) =>
+  problem.latex_text.toLowerCase().includes(searchTerm.toLowerCase())
+);
+
+
 useEffect(() => {
   if (viewMode === "problems") {
     axios
@@ -102,7 +107,12 @@ const copyToClipboard = (text, id) => {
               <Search className="search-icon" />
               <input
                 type="text"
-                placeholder="Pretraga svih predavanja..."
+                placeholder={
+  viewMode === "lectures"
+    ? "Pretraga svih predavanja..."
+    : "Pretraga zadataka..."
+}
+
                 className="search-input large"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -156,7 +166,8 @@ const copyToClipboard = (text, id) => {
         </tr>
       </thead>
       <tbody>
-        {problems.map((problem, index) => (
+        {filtriraniZadaci.map((problem, index) => (
+
           <tr key={index}>
             <td>{problem.latex_text}</td>
             <td>{problem.category}</td>
@@ -164,9 +175,9 @@ const copyToClipboard = (text, id) => {
      <button
   type="button"
   onClick={(e) => {
-    e.preventDefault(); // SPREČAVA reload
-    e.stopPropagation(); // SPREČAVA da klik ide dalje do <tr>
-    copyToClipboard(problem.latex_text, problem.id); // KOPIRANJE
+    e.preventDefault(); 
+    e.stopPropagation(); 
+    copyToClipboard(problem.latex_text, problem.id);
   }}
   className="copy-icon-button"
   title="Kopiraj"
