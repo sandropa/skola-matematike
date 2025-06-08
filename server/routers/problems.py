@@ -10,6 +10,8 @@ from ..database import get_db
 # Import the new schemas
 from ..schemas.problem import ProblemSchema, ProblemCreate, ProblemUpdate, ProblemPartialUpdate
 from ..services import problem_service
+from ..schemas.problem import ProblemWithLectureSchema  
+
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +20,10 @@ router = APIRouter(
     tags=["Problems"],
     responses={404: {"description": "Problem not found"}}
 )
+@router.get("/with-lecture", response_model=List[ProblemWithLectureSchema])
+def get_problems_with_lecture(db: Session = Depends(get_db)):
+    return problem_service.get_all_with_lecture(db)
+
 
 # --- GET / remains the same ---
 @router.get("/", response_model=List[ProblemSchema], summary="Get All Problems")
@@ -130,3 +136,6 @@ def delete_existing_problem(problem_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Router: Unexpected error during problem deletion (id: {problem_id}): {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
+   
+
+

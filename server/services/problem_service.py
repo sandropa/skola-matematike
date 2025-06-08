@@ -2,8 +2,15 @@ import logging
 from sqlalchemy.orm import Session
 from ..models.problem import Problem as DBProblem 
 from ..schemas.problem import ProblemSchema, ProblemCreate, ProblemUpdate, ProblemPartialUpdate
+from ..schemas.problem import ProblemWithLectureSchema 
+from ..models.problem import Problem as DBProblem
+from ..models.problemset import Problemset as DBProblemset
+from ..models.problemset_problems import ProblemsetProblems as DBLink
+
 
 from typing import Optional
+from typing import List
+
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -128,3 +135,29 @@ def delete(db: Session, problem_id: int) -> bool:
         db.rollback()
         logger.error(f"Service: Unexpected error during problem deletion (id: {problem_id}): {e}", exc_info=True)
         raise
+
+
+
+def get_all_with_lecture(db: Session) -> List[ProblemWithLectureSchema]:
+    query = (
+        db.query(
+            DBProblem.id,
+            DBProblem.latex_text,
+            DBProblem.category,
+            DBProblemset.title.label("lecture_title")
+        )
+        .join(DBLink, DBProblem.id == DBLink.id_problem)
+        .join(DBProblemset, DBProblemset.id == DBLink.id_problemset)
+    )
+    rows = query.all()
+
+    return [
+        ProblemWithLectureSchema(
+            id=row.id,
+            latex_text=row.latex_text,
+            category=row.category,
+            lecture_title=row.lecture_title
+        )
+        for row in rows
+    ]
+
