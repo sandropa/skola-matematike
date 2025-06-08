@@ -38,8 +38,8 @@ export default function Pocetna() {
       <nav className="navbar">
         <div className="navbar-left">
           <a href="pocetna">
-  <img src="logo.png" class="navbar-logo" alt="Logo" />
-</a>
+            <img src="logo.png" className="navbar-logo" alt="Logo" />
+          </a>
 
         </div>
         <div className="navbar-right">
