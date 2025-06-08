@@ -64,20 +64,18 @@ class GeminiService:
                 contents.append(
                     types.Content(role="model", parts=[types.Part.from_text(text=model_ex)])
                 )
-                
+
         # Add final user input
         final_user_parts: List[types.Part] = []
 
         if user_input_bytes is not None:
-            if not user_input_bytes_mime_type:
-                raise ValueError(
-                    "user_input_image_mime_type is required when user_input_image is provided."
+            bytes_part = types.Part(
+                inline_data=types.Blob(
+                    mime_type=user_input_bytes_mime_type,
+                    data=user_input_bytes
                 )
-            # Create an image part from raw bytes and MIME type
-            image_part = types.Part.from_data(
-                mime_type=user_input_bytes_mime_type, data=user_input_bytes
             )
-            final_user_parts.append(image_part)
+            final_user_parts.append(bytes_part)
 
         if user_input_text is not None:
             # Create a text part. Allows empty string "" as valid input.
