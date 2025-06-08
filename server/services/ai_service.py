@@ -43,7 +43,7 @@ class AIService:
             model=chosen_model,
             system_prompt=system_prompt,
             shots=shots,
-            user_input=user_input,
+            user_input_text=user_input,
             temperature=temperature,
             top_p=top_p,
             thinking_budget=thinking_budget,
@@ -69,10 +69,30 @@ class AIService:
         return self.gemini.stream(
             model=chosen_model,
             system_prompt=system_prompt,
-            user_input=user_input,
+            user_input_text=user_input,
             temperature=temperature,
             top_p=top_p,
             thinking_budget=thinking_budget,
             # response_mime_type="application/json",
             # response_schema=response_schema,
         )
+    
+    async def extract_latex_from_image(
+        self,
+        user_input_image: bytes,
+        user_input_image_mime_type: str,
+        model: Optional[str] = None,
+        temperature: float = 0.0,
+        top_p: float = 1.0,
+        thinking_budget: Optional[int] = None,
+    ) -> AsyncIterator[str]:
+        system_prompt = SYSTEM_PROMPTS["extract_latex_from_image"]
+        chosen_model = model or DEFAULT_MODEL
+
+        return self.gemini.stream(
+            model=chosen_model,
+            system_prompt=system_prompt,
+            user_input_bytes=user_input_image,
+            user_input_bytes_mime_type=user_input_image_mime_type,
+        )
+        
