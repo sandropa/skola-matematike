@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import './profile.css';
+import { Snackbar, Alert } from '@mui/material';
+
 
 function Profil() {
   const { id } = useParams();
@@ -15,6 +17,15 @@ function Profil() {
     confirmPassword: ''
   });
   const [activeTab, setActiveTab] = useState('personal');
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMsg, setSnackbarMsg] = useState('');
+  const [snackbarType, setSnackbarType] = useState('success')
+  const showSnackbar = (msg, type = 'success') => {
+  setSnackbarMsg(msg);
+  setSnackbarType(type);
+  setSnackbarOpen(true);
+};
+
 
   const token = localStorage.getItem('token');
 
@@ -51,11 +62,12 @@ function Profil() {
       }
     })
     .then(() => {
-      alert('Profil uspješno ažuriran');
+     showSnackbar('Profil uspješno ažuriran');
+
     })
     .catch(err => {
       console.error('Greška pri ažuriranju:', err);
-      alert('Došlo je do greške.');
+      showSnackbar('Došlo je do greške.',"error");
     });
   };
 
@@ -63,12 +75,12 @@ function Profil() {
     e.preventDefault();
     console.log("password", user)
     if (user.newPassword.length < 8) {
-      alert('Nova lozinka mora imati najmanje 8 karaktera.');
+    showSnackbar('Nova lozinka mora imati najmanje 8 karaktera.',"error");
       return;
     }
 
     if (user.newPassword !== user.confirmPassword) {
-      alert('Lozinke se ne podudaraju.');
+      showSnackbar('Lozinke se ne podudaraju.',"error");
       return;
     }
 
@@ -82,15 +94,15 @@ function Profil() {
       }
     })
     .then(() => {
-      alert('Lozinka uspješno promijenjena.');
+      showSnackbar('Lozinka uspješno promijenjena.');
       setUser({...user, currentPassword: '', newPassword: '', confirmPassword: ''})
     })
     .catch(err => {
       console.error('Greška pri promjeni lozinke:', err);
       if (err.response && err.response.data && err.response.data.detail) {
-        alert(`Greška: ${err.response.data.detail}`);
+        showSnackbar(`Greška: ${err.response.data.detail}`);
       } else {
-        alert('Došlo je do greške prilikom promjene lozinke.');
+        showSnackbar('Došlo je do greške prilikom promjene lozinke.',"error");
       }
     });
   };
@@ -110,11 +122,11 @@ function Profil() {
   })
   .then(res => {
     setUser(prev => ({ ...prev, profileImage: res.data.image_path }));
-    alert("Slika uspješno uploadovana.");
+    showSnackbar("Slika uspješno uploadovana.");
   })
   .catch(err => {
     console.error('Greška pri uploadu slike:', err);
-    alert('Došlo je do greške prilikom uploada slike.');
+    showSnackbar('Došlo je do greške prilikom uploada slike.',"error");
   });
 };
 
@@ -128,17 +140,18 @@ const handleRemovePhoto = () => {
   })
   .then(() => {
     setUser(prev => ({ ...prev, profileImage: '' }));
-    alert("Profilna slika je uklonjena.");
+    showSnackbar("Profilna slika je uklonjena.");
   })
   .catch(err => {
     console.error('Greška pri uklanjanju slike:', err);
-    alert("Došlo je do greške.");
+    showSnackbar("Došlo je do greške.","error");
   });
 };
 
 
 
   return (
+    <>
     <div>
  
 
@@ -315,6 +328,21 @@ const handleRemovePhoto = () => {
         </div>
       </div>
     </div>
+    <Snackbar
+      open={snackbarOpen}
+      autoHideDuration={4000}
+      onClose={() => setSnackbarOpen(false)}
+      anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+    >
+      <Alert
+        onClose={() => setSnackbarOpen(false)}
+        severity={snackbarType}
+        sx={{ width: '100%' }}
+      >
+        {snackbarMsg}
+      </Alert>
+    </Snackbar>
+    </>
   );
 }
 
