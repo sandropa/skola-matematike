@@ -238,4 +238,49 @@ body {
       min-width: 100%;
     }
   }
-  
+  .dropdown-container {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 1rem;
+}
+
+.dropdown-select {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #ccc;
+  font-size: 15px;
+  font-family: 'Segoe UI', sans-serif;
+  background-color: #fff;
+  color: #333;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: border-color 0.3s ease;
+}
+
+.dropdown-select:focus {
+  border-color: #1e6ca6;
+  outline: none;
+}
+
+.copy-icon-button {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #444;
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.copy-icon-button:hover {
+  color: #1e6ca6;
+  transform: scale(1.1);
+}
+
+.copy-icon-button svg {
+  width: 20px;
+  height: 20px;
+}
