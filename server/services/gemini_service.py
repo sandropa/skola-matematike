@@ -39,7 +39,9 @@ class GeminiService:
         self,
         model: str,
         system_prompt: str,
-        user_input: str,
+        user_input_text: Optional[str] = None,
+        user_input_bytes: Optional[bytes] = None,
+        user_input_bytes_mime_type: Optional[str] = None,
         shots: Optional[List[Tuple[str, str]]] = None, # list of (user_example, model_example)
         temperature: float = 0.0,
         top_p: float = 1.0,
@@ -62,10 +64,36 @@ class GeminiService:
                 contents.append(
                     types.Content(role="model", parts=[types.Part.from_text(text=model_ex)])
                 )
+                
         # Add final user input
-        contents.append(
-            types.Content(role="user", parts=[types.Part.from_text(text=user_input)])
-        )
+        final_user_parts: List[types.Part] = []
+
+        if user_input_bytes is not None:
+            if not user_input_bytes_mime_type:
+                raise ValueError(
+                    "user_input_image_mime_type is required when user_input_image is provided."
+                )
+            # Create an image part from raw bytes and MIME type
+            image_part = types.Part.from_data(
+                mime_type=user_input_bytes_mime_type, data=user_input_bytes
+            )
+            final_user_parts.append(image_part)
+
+        if user_input_text is not None:
+            # Create a text part. Allows empty string "" as valid input.
+            text_part = types.Part.from_text(text=user_input_text)
+            final_user_parts.append(text_part)
+
+        # The Gemini API requires the last message to be from the 'user' role,
+        # and this message must contain at least one part.
+        if not final_user_parts:
+            raise ValueError(
+                "The final user message must contain content. "
+                "Provide either user_input_text or user_input_image (with user_input_image_mime_type)."
+            )
+        
+        contents.append(types.Content(role="user", parts=final_user_parts))
+        
 
         # Build GenerateContentConfig
         system_prompt = [types.Part.from_text(text=system_prompt)]
