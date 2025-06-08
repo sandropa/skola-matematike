@@ -103,31 +103,31 @@ const copyToClipboard = (text, id) => {
         {}
         <div className="main-content">
           <div className="main-header">
-            <div className="search-container">
-              <Search className="search-icon" />
-              <input
-                type="text"
-                placeholder={
-  viewMode === "lectures"
-    ? "Pretraga svih predavanja..."
-    : "Pretraga zadataka..."
-}
+  <div className="search-container">
+    <Search className="search-icon" />
+    <input
+      type="text"
+      placeholder={
+        viewMode === "lectures"
+          ? "Pretraga svih predavanja..."
+          : "Pretraga zadataka..."
+      }
+      className="search-input large"
+      value={searchTerm}
+      onChange={(e) => setSearchTerm(e.target.value)}
+    />
+  </div>
 
-                className="search-input large"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="dropdown-container">
-   <select
-    value={viewMode}
-    onChange={(e) => setViewMode(e.target.value)}
-    className="dropdown-select"
-  >
-    <option value="lectures">Predavanja</option>
-    <option value="problems">Zadaci</option>
-  </select>
+  <div className="dropdown-inline">
+    <select
+      value={viewMode}
+      onChange={(e) => setViewMode(e.target.value)}
+      className="dropdown-select"
+    >
+      <option value="lectures">Predavanja</option>
+      <option value="problems">Zadaci</option>
+    </select>
+  </div>
 </div>
 
 

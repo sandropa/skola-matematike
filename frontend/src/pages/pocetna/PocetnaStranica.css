@@ -107,13 +107,7 @@ body {
     background-color: #f7f9fb;
   }
   
-  .main-header {
-    display: flex;
-    justify-content: flex-start;
-    align-items: center;
-    margin-bottom: 1.5rem;
-    gap: 1rem;
-  }
+  
   
   .search-input {
     padding: 12px 12px 12px 40px;
@@ -238,10 +232,16 @@ body {
       min-width: 100%;
     }
   }
-  .dropdown-container {
+.main-header {
   display: flex;
-  justify-content: flex-end;
-  margin-bottom: 1rem;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  gap: 1rem;
+}
+
+.dropdown-inline {
+  min-width: 140px;
 }
 
 .dropdown-select {
@@ -261,6 +261,7 @@ body {
   border-color: #1e6ca6;
   outline: none;
 }
+
 
 .copy-icon-button {
   background: none;
