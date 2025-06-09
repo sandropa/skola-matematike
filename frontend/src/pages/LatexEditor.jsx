@@ -7,7 +7,8 @@ import {
   CircularProgress,
   Alert,
   Divider,
-  Snackbar
+  Snackbar,
+  Button
 } from '@mui/material';
 import { Code, ImageIcon } from 'lucide-react';
 
@@ -248,6 +249,16 @@ function usePdfCompiler(editorRef) {
 function EditorPanel({ code, onChange, editorRef, monacoRef, onImageProcessing }) {
   const [isProcessingImage, setIsProcessingImage] = useState(false);
 
+  const handleSaveDraft = () => {
+    console.log('Saving draft...');
+    // TODO: Implement save draft functionality
+  };
+
+  const handleFinalize = () => {
+    console.log('Finalizing...');
+    // TODO: Implement finalize functionality
+  };
+
   const handleMount = (editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
@@ -334,6 +345,40 @@ function EditorPanel({ code, onChange, editorRef, monacoRef, onImageProcessing }
         <Typography variant="subtitle2" sx={{ fontWeight: 'medium' }}>
           LaTeX Source (Ctrl+S to Compile, Ctrl+V to paste images)
         </Typography>
+        <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={handleSaveDraft}
+            sx={{
+              bgcolor: 'white',
+              borderColor: 'primary.main',
+              color: 'primary.main',
+              '&:hover': {
+                bgcolor: 'primary.main',
+                color: 'white'
+              }
+            }}
+          >
+            Sačuvaj skicu
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={handleFinalize}
+            sx={{
+              bgcolor: 'white',
+              borderColor: 'primary.main',
+              color: 'primary.main',
+              '&:hover': {
+                bgcolor: 'primary.main',
+                color: 'white'
+              }
+            }}
+          >
+            Finaliziraj
+          </Button>
+        </Box>
         {isProcessingImage && (
           <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center' }}>
             <CircularProgress size={16} sx={{ mr: 1 }} />
