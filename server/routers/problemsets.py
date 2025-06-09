@@ -611,8 +611,8 @@ def finalize_problemset(
         if title_match:
             problemset.title = title_match.group(1).strip()
 
-        # Find all problem environments
-        problem_pattern = r'\\begin\{problem\}(.*?)\\end\{problem\}'
+        # Find all problem environments and their corresponding solutions
+        problem_pattern = r'\\begin\{problem\}(.*?)\\end\{problem\}(.*?)(?=\\begin\{problem\}|\\end\{document\})'
         problems = re.finditer(problem_pattern, problemset.raw_latex, re.DOTALL)
 
         # Get all problems currently linked to this problemset
@@ -637,13 +637,19 @@ def finalize_problemset(
         
         db.flush()
 
-        # Process each problem
+        # Process each problem and its solution
         for index, problem_match in enumerate(problems, 1):
             problem_text = problem_match.group(1).strip()
+            solution_text = problem_match.group(2).strip()
+            
+            # Extract solution if it exists
+            solution_match = re.search(r'\\begin\{solution\}(.*?)\\end\{solution\}', solution_text, re.DOTALL)
+            solution = solution_match.group(1).strip() if solution_match else None
             
             # Create a new problem
             problem = Problem(
                 latex_text=problem_text,
+                solution=solution,
                 category='A'  # Default category, can be updated later
             )
             db.add(problem)
