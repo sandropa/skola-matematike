@@ -648,24 +648,48 @@ export default function LatexEditor() {
     }
   };
 
-  // Effect to load the template
+  // Effect to load the template or existing problemset
   useEffect(() => {
-    fetch('/latex_template.tex')
-      .then(response => {
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status} while fetching template.`);
-        }
-        return response.text();
-      })
-      .then(text => {
-        setCode(text);
-      })
-      .catch(err => {
-        console.error("Failed to load LaTeX template:", err);
-        setTemplateError(err.message);
-        setCode('% Welcome to the LaTeX Editor!\n% Failed to load template.\n\n\\documentclass{article}\n\n\\begin{document}\n\nHello, world!\n\n\\end{document}');
-      });
-  }, []);
+    if (problemsetId) {
+      // Load existing problemset
+      fetch(`${API_BASE_URL}/problemsets/${problemsetId}`)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status} while fetching problemset.`);
+          }
+          return response.json();
+        })
+        .then(data => {
+          if (data.raw_latex) {
+            setCode(data.raw_latex);
+          } else {
+            throw new Error('No LaTeX content found in problemset');
+          }
+        })
+        .catch(err => {
+          console.error("Failed to load problemset:", err);
+          setTemplateError(err.message);
+          setCode('% Welcome to the LaTeX Editor!\n% Failed to load problemset.\n\n\\documentclass{article}\n\n\\begin{document}\n\nHello, world!\n\n\\end{document}');
+        });
+    } else {
+      // Load default template
+      fetch('/latex_template.tex')
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status} while fetching template.`);
+          }
+          return response.text();
+        })
+        .then(text => {
+          setCode(text);
+        })
+        .catch(err => {
+          console.error("Failed to load LaTeX template:", err);
+          setTemplateError(err.message);
+          setCode('% Welcome to the LaTeX Editor!\n% Failed to load template.\n\n\\documentclass{article}\n\n\\begin{document}\n\nHello, world!\n\n\\end{document}');
+        });
+    }
+  }, [problemsetId]);
 
   if (templateError && code === null) {
     return <Alert severity="error">Failed to load LaTeX template: {templateError}</Alert>;
