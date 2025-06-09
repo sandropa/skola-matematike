@@ -9,7 +9,7 @@ import {
   Search,
 } from "lucide-react";
 import "./PocetnaStranica.css";
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { User as UserIcon, Settings as SettingsIcon } from 'lucide-react';
 import { Copy, Check } from "lucide-react";
 
@@ -23,6 +23,7 @@ export default function Pocetna() {
   const [viewMode, setViewMode] = useState("lectures"); 
   const [problems, setProblems] = useState([]);
   const [copiedId, setCopiedId] = useState(null);
+  const navigate = useNavigate();
 
 
 
@@ -148,7 +149,12 @@ const copyToClipboard = (text, id) => {
                     <td>{project.title}</td>
                     <td>{project.group_name || "Nepoznato"}</td>
                     <td className="action-buttons">
-                      <FileText className="action-icon" title="Prikaži fajl" />
+                      <FileText
+                        className="action-icon"
+                        title="Prikaži fajl"
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => navigate(`/editor/${project.id}`)}
+                      />
                       <FileDown className="action-icon" title="Preuzmi PDF" />
                     </td>
                   </tr>

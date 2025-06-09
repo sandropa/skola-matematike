@@ -660,10 +660,10 @@ export default function LatexEditor() {
           return response.json();
         })
         .then(data => {
-          if (data.raw_latex) {
+          if (data.raw_latex && data.raw_latex.trim() !== "") {
             setCode(data.raw_latex);
           } else {
-            throw new Error('No LaTeX content found in problemset');
+            setCode(""); // Show nothing if raw_latex is empty
           }
         })
         .catch(err => {
