@@ -312,9 +312,76 @@ function EditorPanel({ code, onChange, editorRef, monacoRef, onImageProcessing, 
     }
   };
 
-  const handleFinalize = () => {
-    console.log('Finalizing...');
-    // TODO: Implement finalize functionality
+  const handleFinalize = async () => {
+    const editor = editorRef.current;
+    if (!editor) {
+      setSaveStatus({ success: false, message: 'Editor not ready' });
+      return;
+    }
+
+    const latexCode = editor.getValue();
+    if (!latexCode.trim()) {
+      setSaveStatus({ success: false, message: 'LaTeX code is empty' });
+      return;
+    }
+
+    try {
+      let currentProblemsetId = problemsetId;
+
+      // Only create a new problemset if we don't have an ID in the URL
+      if (!currentProblemsetId) {
+        const createResponse = await fetch(`${API_BASE_URL}/problemsets`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: 'New Problemset',
+            type: 'predavanje',
+            part_of: 'skola matematike',
+            group_name: 'pocetna'
+          })
+        });
+
+        if (!createResponse.ok) {
+          const errorData = await createResponse.json();
+          throw new Error(errorData.detail || 'Failed to create problemset');
+        }
+
+        const newProblemset = await createResponse.json();
+        currentProblemsetId = newProblemset.id;
+        
+        // Update the URL to include the new problemset ID
+        window.history.replaceState({}, '', `/editor/${currentProblemsetId}`);
+        // Update the problemsetId state
+        setProblemsetId(currentProblemsetId);
+      }
+
+      // First save the draft
+      const saveResponse = await fetch(`${API_BASE_URL}/problemsets/${currentProblemsetId}/draft`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw_latex: latexCode })
+      });
+
+      if (!saveResponse.ok) {
+        const errorData = await saveResponse.json();
+        throw new Error(errorData.detail || 'Failed to save draft');
+      }
+
+      // Then finalize the problemset
+      const finalizeResponse = await fetch(`${API_BASE_URL}/problemsets/${currentProblemsetId}/finalize`, {
+        method: 'PUT'
+      });
+
+      if (!finalizeResponse.ok) {
+        const errorData = await finalizeResponse.json();
+        throw new Error(errorData.detail || 'Failed to finalize problemset');
+      }
+
+      setSaveStatus({ success: true, message: 'Problemset finalized successfully' });
+    } catch (error) {
+      console.error('Error finalizing problemset:', error);
+      setSaveStatus({ success: false, message: error.message || 'Failed to finalize problemset' });
+    }
   };
 
   const handleMount = (editor, monaco) => {
