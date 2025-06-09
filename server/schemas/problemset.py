@@ -32,9 +32,13 @@ class ProblemsetCreate(ProblemsetBase):
     pass
 
 # Schema for updating an existing problemset (used in PUT request body)
-# All fields are required for PUT updates to maintain data integrity
-class ProblemsetUpdate(ProblemsetBase):
-    pass
+# All fields are optional for partial updates
+class ProblemsetUpdate(BaseModel):
+    title: Optional[str] = Field(None, examples=["Algebra Basics"])
+    type: Optional[str] = Field(None, examples=["predavanje", "vjezbe", "ispit"])
+    part_of: Optional[str] = Field(None, examples=["ljetni kamp", "skola matematike"])
+    group_name: Optional[str] = Field(None, examples=["pocetna", "napredna"])
+    raw_latex: Optional[str] = Field(None, examples=["\\begin{document}...\\end{document}"])
 
 # --- UPDATED SCHEMA FOR RESPONSES ---
 
