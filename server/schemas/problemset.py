@@ -24,6 +24,7 @@ class ProblemsetBase(BaseModel):
     type: str = Field(..., examples=["predavanje", "vjezbe", "ispit"]) # Lecture, exercises, exam
     part_of: str = Field(..., examples=["ljetni kamp", "skola matematike"]) # Context like camp or regular school
     group_name: Optional[str] = Field(None, examples=["pocetna", "napredna"]) # Target group, can be optional
+    raw_latex: Optional[str] = Field(None, examples=["\\begin{document}...\\end{document}"]) # Raw LaTeX code
 
 # Schema for creating a new problemset (used in POST request body)
 class ProblemsetCreate(ProblemsetBase):
@@ -33,8 +34,12 @@ class ProblemsetCreate(ProblemsetBase):
 # Schema for updating an existing problemset (used in PUT request body)
 # Allows all fields from Base to be updated.
 # For partial updates (PATCH), you might make fields Optional here.
-class ProblemsetUpdate(ProblemsetBase):
-    pass
+class ProblemsetUpdate(BaseModel):
+    title: Optional[str] = Field(None, examples=["Algebra Basics"])
+    type: Optional[str] = Field(None, examples=["predavanje", "vjezbe", "ispit"])
+    part_of: Optional[str] = Field(None, examples=["ljetni kamp", "skola matematike"])
+    group_name: Optional[str] = Field(None, examples=["pocetna", "napredna"])
+    raw_latex: Optional[str] = Field(None, examples=["\\begin{document}...\\end{document}"])
 
 # --- UPDATED SCHEMA FOR RESPONSES ---
 
