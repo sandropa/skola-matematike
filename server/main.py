@@ -16,6 +16,7 @@ from .routers import problems
 from .routers import problemsets
 from .routers import user
 from .routers import llm
+from .routers import schedule_entry
 
 # Import the settings from your config file (assuming config.py loads .env)
 from .config import settings
@@ -60,6 +61,7 @@ app.include_router(problems.router)
 app.include_router(problemsets.router)
 app.include_router(user.router)
 app.include_router(llm.router)
+app.include_router(schedule_entry.router)
 
 # --- Pydantic Models ---
 class LatexInput(BaseModel):
