@@ -30,6 +30,13 @@ const handleLogout = () => {
         >
           Predavači
         </Link>
+        <Link
+          to="/raspored"
+          className="navbar-item"
+          style={{ textDecoration: 'none', color: 'inherit', marginLeft: '24px' }}
+        >
+          Raspored
+        </Link>
         <div
           onClick={handleLogout}
           className="navbar-item"

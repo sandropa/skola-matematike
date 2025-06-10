@@ -16,6 +16,7 @@ import Navbar from './components/Navbar';
 
 import LatexEditor from './pages/LatexEditor';
 import { Navigate } from 'react-router-dom';
+import RasporedPage from './pages/Raspored/RasporedPage';
 
 
 function App() {
@@ -54,6 +55,7 @@ return (
       <Route path="/profil/:id" element={<UserProfile />} />
       <Route path="/pocetna" element={<PocetnaStranica />} />
       <Route path="/predavaci" element={<Predavaci />} />
+      <Route path="/raspored" element={<RasporedPage />} />
       <Route path="*" element={<div>404: Page Not Found</div>} />
     </>
   ) : (
