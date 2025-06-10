@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, TextField, IconButton, Button, Tooltip } from '@mui/material';
+import { Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, TextField, IconButton, Button, Tooltip, Box } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import SaveIcon from '@mui/icons-material/Save';
 
@@ -18,42 +18,51 @@ const lecturerColors = {
 };
 
 export default function RasporedTable({ schedule, loading }) {
-  const [editIdx, setEditIdx] = useState(null);
-  const [editRow, setEditRow] = useState(null);
+  const [editMode, setEditMode] = useState(false);
+  const [editData, setEditData] = useState(null);
   const [editingCell, setEditingCell] = useState(null); // { rowIdx, group, field }
 
   if (loading) return <div>Loading...</div>;
 
   let lastCycle = null;
 
-  const handleEdit = (idx, row) => {
-    setEditIdx(idx);
-    setEditRow(JSON.parse(JSON.stringify(row))); // deep copy
-  };
-
-  const handleSave = (idx) => {
-    schedule[idx] = editRow;
-    setEditIdx(null);
-    setEditRow(null);
-    setEditingCell(null);
-  };
-
-  const handleFieldChange = (group, field, value) => {
-    setEditRow({
-      ...editRow,
-      groups: {
-        ...editRow.groups,
-        [group]: {
-          ...editRow.groups[group],
-          [field]: value
+  const handleEditToggle = () => {
+    if (editMode) {
+      // Save changes
+      schedule.forEach((row, idx) => {
+        if (editData[idx]) {
+          schedule[idx] = editData[idx];
         }
-      }
+      });
+      setEditMode(false);
+      setEditData(null);
+      setEditingCell(null);
+    } else {
+      // Enter edit mode
+      setEditMode(true);
+      setEditData(schedule.map(row => JSON.parse(JSON.stringify(row))));
+    }
+  };
+
+  const handleFieldChange = (rowIdx, group, field, value) => {
+    setEditData(prev => {
+      const newData = [...prev];
+      newData[rowIdx] = {
+        ...newData[rowIdx],
+        groups: {
+          ...newData[rowIdx].groups,
+          [group]: {
+            ...newData[rowIdx].groups[group],
+            [field]: value
+          }
+        }
+      };
+      return newData;
     });
   };
 
   const handleCellDoubleClick = (rowIdx, group, field) => {
-    setEditIdx(rowIdx);
-    setEditRow(JSON.parse(JSON.stringify(schedule[rowIdx])));
+    if (!editMode) return;
     setEditingCell({ rowIdx, group, field });
   };
 
@@ -61,14 +70,19 @@ export default function RasporedTable({ schedule, loading }) {
     setEditingCell(null);
   };
 
-  const handleCellKeyDown = (e, idx) => {
+  const handleCellKeyDown = (e) => {
     if (e.key === 'Enter') {
-      handleSave(idx);
+      setEditingCell(null);
     }
   };
 
   return (
     <TableContainer component={Paper} sx={{ mt: 2, boxShadow: 'none', border: '1px solid rgba(0, 0, 0, 0.1)' }}>
+      <Box sx={{ p: 1, display: 'flex', justifyContent: 'flex-end' }}>
+        <IconButton onClick={handleEditToggle} size="small">
+          {editMode ? <SaveIcon /> : <EditIcon />}
+        </IconButton>
+      </Box>
       <Table size="small" sx={{ minWidth: 1200 }}>
         <TableHead>
           <TableRow>
@@ -78,7 +92,6 @@ export default function RasporedTable({ schedule, loading }) {
             {groupNames.map(group => (
               <TableCell key={group} colSpan={1} sx={{ fontWeight: 'bold', bgcolor: 'rgba(37, 99, 235, 0.05)', textAlign: 'center' }}>{group}</TableCell>
             ))}
-            <TableCell rowSpan={2} sx={{ fontWeight: 'bold', bgcolor: 'rgba(37, 99, 235, 0.05)' }}></TableCell>
           </TableRow>
           <TableRow>
             {groupNames.map(group => (
@@ -88,15 +101,14 @@ export default function RasporedTable({ schedule, loading }) {
         </TableHead>
         <TableBody>
           {schedule.map((row, idx) => {
-            const isEditing = editIdx === idx;
             const isNewCycle = row.cycle !== lastCycle;
             lastCycle = row.cycle;
-            const rowData = isEditing ? editRow : row;
+            const rowData = editMode && editData ? editData[idx] : row;
             return (
               <React.Fragment key={row.cycle + '-' + row.row}>
                 {isNewCycle && idx !== 0 && (
                   <TableRow>
-                    <TableCell colSpan={11} sx={{ bgcolor: 'rgba(37, 99, 235, 0.05)', height: 8, borderBottom: '1px solid rgba(37, 99, 235, 0.2)' }} />
+                    <TableCell colSpan={10} sx={{ bgcolor: 'rgba(37, 99, 235, 0.05)', height: 8, borderBottom: '1px solid rgba(37, 99, 235, 0.2)' }} />
                   </TableRow>
                 )}
                 {/* Tema row */}
@@ -119,17 +131,13 @@ export default function RasporedTable({ schedule, loading }) {
                         '&:hover': { bgcolor: 'rgba(37, 99, 235, 0.05)' },
                         transition: 'background-color 0.2s'
                       }}
-                      onDoubleClick={() => handleCellDoubleClick(idx, group, 'Tema')}
                     >
-                      {editingCell && editingCell.rowIdx === idx && editingCell.group === group && editingCell.field === 'Tema' ? (
+                      {editMode ? (
                         <TextField
-                          autoFocus
                           value={rowData.groups[group]?.Tema || ""}
-                          onChange={e => handleFieldChange(group, "Tema", e.target.value)}
+                          onChange={e => handleFieldChange(idx, group, "Tema", e.target.value)}
                           size="small"
                           variant="standard"
-                          onBlur={handleCellBlur}
-                          onKeyDown={e => handleCellKeyDown(e, idx)}
                           sx={{ '& .MuiInputBase-root': { fontSize: 'inherit' } }}
                         />
                       ) : (
@@ -137,13 +145,6 @@ export default function RasporedTable({ schedule, loading }) {
                       )}
                     </TableCell>
                   ))}
-                  <TableCell rowSpan={4}>
-                    {isEditing ? (
-                      <IconButton onClick={() => handleSave(idx)} size="small"><SaveIcon /></IconButton>
-                    ) : (
-                      <IconButton onClick={() => handleEdit(idx, row)} size="small"><EditIcon /></IconButton>
-                    )}
-                  </TableCell>
                 </TableRow>
                 {/* Datum row */}
                 <TableRow 
@@ -163,17 +164,13 @@ export default function RasporedTable({ schedule, loading }) {
                         '&:hover': { bgcolor: 'rgba(37, 99, 235, 0.05)' },
                         transition: 'background-color 0.2s'
                       }}
-                      onDoubleClick={() => handleCellDoubleClick(idx, group, 'Datum')}
                     >
-                      {editingCell && editingCell.rowIdx === idx && editingCell.group === group && editingCell.field === 'Datum' ? (
+                      {editMode ? (
                         <TextField
-                          autoFocus
                           value={rowData.groups[group]?.Datum || ""}
-                          onChange={e => handleFieldChange(group, "Datum", e.target.value)}
+                          onChange={e => handleFieldChange(idx, group, "Datum", e.target.value)}
                           size="small"
                           variant="standard"
-                          onBlur={handleCellBlur}
-                          onKeyDown={e => handleCellKeyDown(e, idx)}
                           sx={{ '& .MuiInputBase-root': { fontSize: 'inherit' } }}
                         />
                       ) : (
@@ -202,17 +199,13 @@ export default function RasporedTable({ schedule, loading }) {
                         '&:hover': { bgcolor: 'rgba(37, 99, 235, 0.1)' },
                         transition: 'background-color 0.2s'
                       }}
-                      onDoubleClick={() => handleCellDoubleClick(idx, group, 'Predavač')}
                     >
-                      {editingCell && editingCell.rowIdx === idx && editingCell.group === group && editingCell.field === 'Predavač' ? (
+                      {editMode ? (
                         <TextField
-                          autoFocus
                           value={rowData.groups[group]?.Predavač || ""}
-                          onChange={e => handleFieldChange(group, "Predavač", e.target.value)}
+                          onChange={e => handleFieldChange(idx, group, "Predavač", e.target.value)}
                           size="small"
                           variant="standard"
-                          onBlur={handleCellBlur}
-                          onKeyDown={e => handleCellKeyDown(e, idx)}
                           sx={{ '& .MuiInputBase-root': { fontSize: 'inherit' } }}
                         />
                       ) : (
@@ -239,62 +232,17 @@ export default function RasporedTable({ schedule, loading }) {
                         '&:hover': { bgcolor: 'rgba(37, 99, 235, 0.05)' },
                         transition: 'background-color 0.2s'
                       }}
-                      onDoubleClick={() => handleCellDoubleClick(idx, group, 'comments')}
                     >
-                      {editingCell && editingCell.rowIdx === idx && editingCell.group === group && editingCell.field === 'comments' ? (
+                      {editMode ? (
                         <TextField
-                          autoFocus
                           value={rowData.groups[group]?.comments || ""}
-                          onChange={e => handleFieldChange(group, "comments", e.target.value)}
+                          onChange={e => handleFieldChange(idx, group, "comments", e.target.value)}
                           size="small"
                           variant="standard"
-                          onBlur={handleCellBlur}
-                          onKeyDown={e => handleCellKeyDown(e, idx)}
                           sx={{ '& .MuiInputBase-root': { fontSize: 'inherit' } }}
                         />
                       ) : (
-                        <Tooltip 
-                          title={
-                            <div style={{ 
-                              padding: '8px 0',
-                              lineHeight: '1.5',
-                              textAlign: 'left'
-                            }}>
-                              {rowData.groups[group]?.comments || ""}
-                            </div>
-                          }
-                          arrow
-                          placement="top"
-                          componentsProps={{
-                            tooltip: {
-                              sx: {
-                                bgcolor: 'white',
-                                color: '#1e293b',
-                                fontSize: '0.95rem',
-                                padding: '16px',
-                                maxWidth: '500px',
-                                whiteSpace: 'pre-wrap',
-                                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)',
-                                borderRadius: '8px',
-                                border: '1px solid rgba(37, 99, 235, 0.1)',
-                                '& .MuiTooltip-arrow': {
-                                  color: 'white'
-                                }
-                              }
-                            }
-                          }}
-                        >
-                          <span style={{ 
-                            cursor: 'pointer',
-                            display: 'inline-block',
-                            maxWidth: '200px',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap'
-                          }}>
-                            {rowData.groups[group]?.comments || ""}
-                          </span>
-                        </Tooltip>
+                        rowData.groups[group]?.comments || ""
                       )}
                     </TableCell>
                   ))}
