@@ -7,7 +7,8 @@ import {
   CircularProgress,
   Alert,
   Divider,
-  Snackbar
+  Snackbar,
+  Button
 } from '@mui/material';
 import { Code, ImageIcon } from 'lucide-react';
 
@@ -245,8 +246,143 @@ function usePdfCompiler(editorRef) {
 }
 
 // 4) Editor panel with image paste handling
-function EditorPanel({ code, onChange, editorRef, monacoRef, onImageProcessing }) {
+function EditorPanel({ code, onChange, editorRef, monacoRef, onImageProcessing, problemsetId, setProblemsetId }) {
   const [isProcessingImage, setIsProcessingImage] = useState(false);
+  const [saveStatus, setSaveStatus] = useState({ success: false, message: '' });
+
+  const handleSaveDraft = async () => {
+    const editor = editorRef.current;
+    if (!editor) {
+      setSaveStatus({ success: false, message: 'Editor not ready' });
+      return;
+    }
+
+    const latexCode = editor.getValue();
+    if (!latexCode.trim()) {
+      setSaveStatus({ success: false, message: 'LaTeX code is empty' });
+      return;
+    }
+
+    try {
+      let currentProblemsetId = problemsetId;
+
+      // Only create a new problemset if we don't have an ID in the URL
+      if (!currentProblemsetId) {
+        const createResponse = await fetch(`${API_BASE_URL}/problemsets`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: 'New Problemset',
+            type: 'predavanje',
+            part_of: 'skola matematike',
+            group_name: 'pocetna'
+          })
+        });
+
+        if (!createResponse.ok) {
+          const errorData = await createResponse.json();
+          throw new Error(errorData.detail || 'Failed to create problemset');
+        }
+
+        const newProblemset = await createResponse.json();
+        currentProblemsetId = newProblemset.id;
+        
+        // Update the URL to include the new problemset ID
+        window.history.replaceState({}, '', `/editor/${currentProblemsetId}`);
+        // Update the problemsetId state
+        setProblemsetId(currentProblemsetId);
+      }
+
+      // Now save the draft
+      const response = await fetch(`${API_BASE_URL}/problemsets/${currentProblemsetId}/draft`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw_latex: latexCode })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to save draft');
+      }
+
+      setSaveStatus({ success: true, message: 'Draft saved successfully' });
+    } catch (error) {
+      console.error('Error saving draft:', error);
+      setSaveStatus({ success: false, message: error.message || 'Failed to save draft' });
+    }
+  };
+
+  const handleFinalize = async () => {
+    const editor = editorRef.current;
+    if (!editor) {
+      setSaveStatus({ success: false, message: 'Editor not ready' });
+      return;
+    }
+
+    const latexCode = editor.getValue();
+    if (!latexCode.trim()) {
+      setSaveStatus({ success: false, message: 'LaTeX code is empty' });
+      return;
+    }
+
+    try {
+      let currentProblemsetId = problemsetId;
+
+      // Only create a new problemset if we don't have an ID in the URL
+      if (!currentProblemsetId) {
+        const createResponse = await fetch(`${API_BASE_URL}/problemsets`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: 'New Problemset',
+            type: 'predavanje',
+            part_of: 'skola matematike',
+            group_name: 'pocetna'
+          })
+        });
+
+        if (!createResponse.ok) {
+          const errorData = await createResponse.json();
+          throw new Error(errorData.detail || 'Failed to create problemset');
+        }
+
+        const newProblemset = await createResponse.json();
+        currentProblemsetId = newProblemset.id;
+        
+        // Update the URL to include the new problemset ID
+        window.history.replaceState({}, '', `/editor/${currentProblemsetId}`);
+        // Update the problemsetId state
+        setProblemsetId(currentProblemsetId);
+      }
+
+      // First save the draft
+      const saveResponse = await fetch(`${API_BASE_URL}/problemsets/${currentProblemsetId}/draft`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw_latex: latexCode })
+      });
+
+      if (!saveResponse.ok) {
+        const errorData = await saveResponse.json();
+        throw new Error(errorData.detail || 'Failed to save draft');
+      }
+
+      // Then finalize the problemset
+      const finalizeResponse = await fetch(`${API_BASE_URL}/problemsets/${currentProblemsetId}/finalize`, {
+        method: 'PUT'
+      });
+
+      if (!finalizeResponse.ok) {
+        const errorData = await finalizeResponse.json();
+        throw new Error(errorData.detail || 'Failed to finalize problemset');
+      }
+
+      setSaveStatus({ success: true, message: 'Problemset finalized successfully' });
+    } catch (error) {
+      console.error('Error finalizing problemset:', error);
+      setSaveStatus({ success: false, message: error.message || 'Failed to finalize problemset' });
+    }
+  };
 
   const handleMount = (editor, monaco) => {
     editorRef.current = editor;
@@ -334,6 +470,40 @@ function EditorPanel({ code, onChange, editorRef, monacoRef, onImageProcessing }
         <Typography variant="subtitle2" sx={{ fontWeight: 'medium' }}>
           LaTeX Source (Ctrl+S to Compile, Ctrl+V to paste images)
         </Typography>
+        <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={handleSaveDraft}
+            sx={{
+              bgcolor: 'white',
+              borderColor: 'primary.main',
+              color: 'primary.main',
+              '&:hover': {
+                bgcolor: 'primary.main',
+                color: 'white'
+              }
+            }}
+          >
+            Sačuvaj skicu
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={handleFinalize}
+            sx={{
+              bgcolor: 'white',
+              borderColor: 'primary.main',
+              color: 'primary.main',
+              '&:hover': {
+                bgcolor: 'primary.main',
+                color: 'white'
+              }
+            }}
+          >
+            Finaliziraj
+          </Button>
+        </Box>
         {isProcessingImage && (
           <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center' }}>
             <CircularProgress size={16} sx={{ mr: 1 }} />
@@ -398,6 +568,17 @@ function EditorPanel({ code, onChange, editorRef, monacoRef, onImageProcessing }
           />
         )}
       </Box>
+      {saveStatus.message && (
+        <Snackbar
+          open={!!saveStatus.message}
+          autoHideDuration={3000}
+          onClose={() => setSaveStatus({ success: false, message: '' })}
+        >
+          <Alert severity={saveStatus.success ? 'success' : 'error'}>
+            {saveStatus.message}
+          </Alert>
+        </Snackbar>
+      )}
     </Paper>
   );
 }
@@ -445,9 +626,19 @@ export default function LatexEditor() {
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [problemsetId, setProblemsetId] = useState(null);
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
   const { pdfUrl, isLoading: isCompiling, error: compileError } = usePdfCompiler(editorRef);
+
+  // Get problemsetId from URL
+  useEffect(() => {
+    const pathParts = window.location.pathname.split('/');
+    const id = parseInt(pathParts[pathParts.length - 1]);
+    if (!isNaN(id)) {
+      setProblemsetId(id);
+    }
+  }, []);
 
   const handleImageProcessing = (processing) => {
     setIsProcessingImage(processing);
@@ -457,24 +648,48 @@ export default function LatexEditor() {
     }
   };
 
-  // Effect to load the template
+  // Effect to load the template or existing problemset
   useEffect(() => {
-    fetch('/latex_template.tex')
-      .then(response => {
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status} while fetching template.`);
-        }
-        return response.text();
-      })
-      .then(text => {
-        setCode(text);
-      })
-      .catch(err => {
-        console.error("Failed to load LaTeX template:", err);
-        setTemplateError(err.message);
-        setCode('% Welcome to the LaTeX Editor!\n% Failed to load template.\n\n\\documentclass{article}\n\n\\begin{document}\n\nHello, world!\n\n\\end{document}');
-      });
-  }, []);
+    if (problemsetId) {
+      // Load existing problemset
+      fetch(`${API_BASE_URL}/problemsets/${problemsetId}`)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status} while fetching problemset.`);
+          }
+          return response.json();
+        })
+        .then(data => {
+          if (data.raw_latex && data.raw_latex.trim() !== "") {
+            setCode(data.raw_latex);
+          } else {
+            setCode(""); // Show nothing if raw_latex is empty
+          }
+        })
+        .catch(err => {
+          console.error("Failed to load problemset:", err);
+          setTemplateError(err.message);
+          setCode('% Welcome to the LaTeX Editor!\n% Failed to load problemset.\n\n\\documentclass{article}\n\n\\begin{document}\n\nHello, world!\n\n\\end{document}');
+        });
+    } else {
+      // Load default template
+      fetch('/latex_template.tex')
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status} while fetching template.`);
+          }
+          return response.text();
+        })
+        .then(text => {
+          setCode(text);
+        })
+        .catch(err => {
+          console.error("Failed to load LaTeX template:", err);
+          setTemplateError(err.message);
+          setCode('% Welcome to the LaTeX Editor!\n% Failed to load template.\n\n\\documentclass{article}\n\n\\begin{document}\n\nHello, world!\n\n\\end{document}');
+        });
+    }
+  }, [problemsetId]);
 
   if (templateError && code === null) {
     return <Alert severity="error">Failed to load LaTeX template: {templateError}</Alert>;
@@ -488,6 +703,8 @@ export default function LatexEditor() {
         editorRef={editorRef} 
         monacoRef={monacoRef}
         onImageProcessing={handleImageProcessing}
+        problemsetId={problemsetId}
+        setProblemsetId={setProblemsetId}
       />
       <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
       <PreviewPanel pdfUrl={pdfUrl} isLoading={isCompiling} error={compileError} />

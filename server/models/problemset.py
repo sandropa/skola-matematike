@@ -15,8 +15,8 @@ class Problemset(Base):
     title = Column(String, nullable=False)
     type = Column(String, nullable=False)
     part_of = Column(String, nullable=False)
-
     group_name = Column(String)
+    raw_latex = Column(Text, nullable=True)
     
     # Relationships
     problems = relationship("ProblemsetProblems", back_populates="problemset")

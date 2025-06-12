@@ -2,6 +2,7 @@
 
 import logging
 import io
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Query 
 from fastapi.responses import StreamingResponse, Response
@@ -531,3 +532,140 @@ async def compile_latex_from_text_endpoint(payload: dict): # Expecting {"latex_c
     except Exception as e:
         pdf_service.logger.exception(f"Unexpected error during direct LaTeX compilation.")
         raise HTTPException(status_code=500, detail="An unexpected error occurred during LaTeX compilation.")
+
+@router.put(
+    "/{problemset_id}/draft",
+    response_model=ProblemsetSchema,
+    summary="Save Draft LaTeX Code",
+    tags=["Problemsets"]
+)
+def save_draft(
+    problemset_id: int,
+    draft_data: dict,  # Expecting {"raw_latex": "..."}
+    db: Session = Depends(get_db)
+):
+    logger.info(f"Router: Request received for PUT /problemsets/{problemset_id}/draft")
+    try:
+        if "raw_latex" not in draft_data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="raw_latex field is required"
+            )
+
+        # Create a ProblemsetUpdate object with just the raw_latex field
+        update_data = ProblemsetUpdate(raw_latex=draft_data["raw_latex"])
+        
+        # Use the existing update function
+        updated_problemset = problemset_service.update(
+            db=db,
+            problemset_id=problemset_id,
+            problemset_update=update_data
+        )
+        
+        if updated_problemset is None:
+            logger.warning(f"Router: Problemset with id {problemset_id} not found for draft save.")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Problemset not found"
+            )
+            
+        logger.info(f"Router: Draft saved successfully for problemset {problemset_id}")
+        return updated_problemset
+        
+    except SQLAlchemyError as e:
+        logger.error(f"Router: Database error during draft save: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database error occurred: {e}"
+        )
+    except ProblemsetServiceError as e:
+        logger.error(f"Router: Service error during draft save: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Router: Unexpected error during draft save: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred"
+        )
+
+@router.put("/{problemset_id}/finalize")
+def finalize_problemset(
+    problemset_id: int,
+    db: Session = Depends(get_db)
+):
+    """Finalize a problemset by parsing its LaTeX content and extracting problems."""
+    try:
+        # Get the problemset
+        problemset = db.query(Problemset).filter(Problemset.id == problemset_id).first()
+        if not problemset:
+            raise HTTPException(status_code=404, detail="Problemset not found")
+
+        if not problemset.raw_latex:
+            raise HTTPException(status_code=400, detail="No LaTeX content to finalize")
+
+        # Extract title from LaTeX
+        title_match = re.search(r'\\title\{([^}]+)\}', problemset.raw_latex)
+        if title_match:
+            problemset.title = title_match.group(1).strip()
+
+        # Find all problem environments and their corresponding solutions
+        problem_pattern = r'\\begin\{problem\}(.*?)\\end\{problem\}(.*?)(?=\\begin\{problem\}|\\end\{document\})'
+        problems = re.finditer(problem_pattern, problemset.raw_latex, re.DOTALL)
+
+        # Get all problems currently linked to this problemset
+        current_links = db.query(ProblemsetProblems).filter(ProblemsetProblems.id_problemset == problemset_id).all()
+        current_problem_ids = [link.id_problem for link in current_links]
+
+        # Delete all existing problemset_problems links
+        db.query(ProblemsetProblems).filter(ProblemsetProblems.id_problemset == problemset_id).delete()
+        db.flush()
+
+        # Delete problems that are no longer linked to any problemset
+        for problem_id in current_problem_ids:
+            # Check if this problem is linked to any other problemset
+            other_links = db.query(ProblemsetProblems).filter(
+                ProblemsetProblems.id_problem == problem_id,
+                ProblemsetProblems.id_problemset != problemset_id
+            ).first()
+            
+            # If no other links exist, delete the problem
+            if not other_links:
+                db.query(Problem).filter(Problem.id == problem_id).delete()
+        
+        db.flush()
+
+        # Process each problem and its solution
+        for index, problem_match in enumerate(problems, 1):
+            problem_text = problem_match.group(1).strip()
+            solution_text = problem_match.group(2).strip()
+            
+            # Extract solution if it exists
+            solution_match = re.search(r'\\begin\{solution\}(.*?)\\end\{solution\}', solution_text, re.DOTALL)
+            solution = solution_match.group(1).strip() if solution_match else None
+            
+            # Create a new problem
+            problem = Problem(
+                latex_text=problem_text,
+                solution=solution,
+                category='A'  # Default category, can be updated later
+            )
+            db.add(problem)
+            db.flush()  # Get the ID
+
+            # Create link
+            link = ProblemsetProblems(
+                id_problem=problem.id,
+                id_problemset=problemset_id,
+                position=index
+            )
+            db.add(link)
+
+        db.commit()
+        return {"message": "Problemset finalized successfully"}
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))

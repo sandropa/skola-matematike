@@ -50,6 +50,7 @@ return (
   {token ? (
     <>
       <Route path="/editor" element={<LatexEditor />} />
+      <Route path="/editor/:id" element={<LatexEditor />} />
       <Route path="/lecture/:id" element={<LectureView />} />
       <Route path="/profil/:id" element={<UserProfile />} />
       <Route path="/pocetna" element={<PocetnaStranica />} />
