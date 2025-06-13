@@ -25,6 +25,14 @@ export default function Pocetna() {
   const [copiedId, setCopiedId] = useState(null);
   const navigate = useNavigate();
 
+  // Function to remember which lecture was opened
+const rememberOpenedLecture = (id) => {
+  let recent = JSON.parse(localStorage.getItem("recentLectures")) || [];
+  recent = recent.filter((item) => item !== id);
+  recent.unshift(id);
+  localStorage.setItem("recentLectures", JSON.stringify(recent));
+};
+
 
 
 
@@ -32,8 +40,21 @@ export default function Pocetna() {
     axios
       .get("http://localhost:8000/problemsets")
       .then((res) => {
-        setProjects(res.data);
-      })
+  const data = res.data;
+  const recent = JSON.parse(localStorage.getItem("recentLectures")) || [];
+
+  const sorted = [...data].sort((a, b) => {
+    const aIndex = recent.indexOf(a.id);
+    const bIndex = recent.indexOf(b.id);
+    if (aIndex === -1 && bIndex === -1) return 0;
+    if (aIndex === -1) return 1;
+    if (bIndex === -1) return -1;
+    return aIndex - bIndex;
+  });
+
+  setProjects(sorted);
+})
+
       .catch((err) => {
         console.error("Greška prilikom dohvatanja predavanja:", err);
       });
@@ -153,7 +174,11 @@ const copyToClipboard = (text, id) => {
                         className="action-icon"
                         title="Prikaži fajl"
                         style={{ cursor: 'pointer' }}
-                        onClick={() => navigate(`/editor/${project.id}`)}
+                        onClick={() => {
+  rememberOpenedLecture(project.id);
+  navigate(`/editor/${project.id}`);
+}}
+
                       />
                       <FileDown className="action-icon" title="Preuzmi PDF" />
                     </td>
