@@ -29,4 +29,4 @@ def login_google_user(id_token_str: str, db: Session):
     except ValueError:
         raise HTTPException(status_code=400, detail="Nevažeći Google token.")
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Greška na serveru.")
+        raise HTTPException(status_code=500, detail="Pogrešan email.")
