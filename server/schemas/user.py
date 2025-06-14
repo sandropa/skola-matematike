@@ -36,6 +36,8 @@ class UserOut(BaseModel):
     surname: str
     profile_image: Optional[str] = None
     role: str
+    password: Optional[str] = None 
+
 
     class Config:
         orm_mode = True
@@ -54,3 +56,14 @@ class PasswordResetRequest(BaseModel):
 class PasswordResetConfirm(BaseModel):
     token: str
     new_password: str
+    
+    
+class GoogleCompleteInviteRequest(BaseModel):
+    id_token: str 
+    
+class GoogleLoginRequest(BaseModel):
+    id_token: str
+    
+class SetPasswordRequest(BaseModel):
+    new_password: str = Field(min_length=8)
+    confirm_password: str = Field(min_length=8)
