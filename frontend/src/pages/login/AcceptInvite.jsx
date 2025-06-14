@@ -3,6 +3,13 @@ import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import './Login.css'; 
 
+import { GoogleLogin } from '@react-oauth/google';
+import {
+  Container, Card, CardContent, Typography,
+  TextField, Button, Box, Alert, Link
+} from '@mui/material';
+
+
 function AcceptInvite() {
   const { inviteId } = useParams();
   const navigate = useNavigate();
@@ -35,6 +42,25 @@ function AcceptInvite() {
     }
   };
 
+  const handleGoogleSuccess = async (credentialResponse) => {
+  try {
+    const res = await axios.post(`http://localhost:8000/users/accept-invite/google/${inviteId}`, {
+      id_token: credentialResponse.credential,
+    });
+
+    setSuccessMsg(res.data.message);
+    setTimeout(() => navigate('/'), 2000);
+  } catch (err) {
+    console.error('Google invite error:', err);
+    setErrorMsg(err.response?.data?.detail || 'Greška pri Google registraciji.');
+  }
+};
+
+const handleGoogleError = () => {
+  setErrorMsg('Google prijava nije uspjela.');
+};
+
+
   return (
     <div className="login-container">
       <div className="login-card">
@@ -60,6 +86,13 @@ function AcceptInvite() {
             />
             <button type="submit">Registruj se</button>
           </form>
+<div style={{ textAlign: 'center', marginTop: '30px' }}>
+  <p>ili</p>
+  <GoogleLogin
+    onSuccess={handleGoogleSuccess}
+    onError={handleGoogleError}
+  />
+</div>
 
           {successMsg && <p className="success-msg">{successMsg}</p>}
           {errorMsg && <p className="error-msg">{errorMsg}</p>}

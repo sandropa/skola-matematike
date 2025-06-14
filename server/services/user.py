@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from ..models.user import User as DBUser
 from ..schemas.user import UserCreate, UserUpdate
 
+
 logger = logging.getLogger(__name__)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -106,3 +107,22 @@ def update_password(db: Session, user_id: int, current_password: str, new_passwo
         db.rollback()
         logger.error(f"Service: DB error during password update of user {user_id}: {e}", exc_info=True)
         raise
+
+
+
+
+
+def set_user_password(db: Session, user_id: int, new_password: str, confirm_password: str):
+    if new_password != confirm_password:
+        raise HTTPException(status_code=400, detail="Lozinke se ne poklapaju.")
+
+    user = db.query(DBUser).filter(DBUser.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Korisnik nije pronađen.")
+
+    if user.password is not None:
+        raise HTTPException(status_code=400, detail="Korisnik već ima lozinku.")
+
+    user.password = get_password_hash(new_password)
+    db.commit()
+    return {"message": "Lozinka je uspješno postavljena."}

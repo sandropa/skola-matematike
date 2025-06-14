@@ -14,7 +14,9 @@ function Profil() {
     profileImage: '',
     currentPassword: '',
     newPassword: '',
-    confirmPassword: ''
+    confirmPassword: '',
+    hasPassword: true 
+    
   });
   const [activeTab, setActiveTab] = useState('personal');
   const [snackbarOpen, setSnackbarOpen] = useState(false);
@@ -38,12 +40,13 @@ function Profil() {
     })
     .then(res => {
       console.log(res.data)
-      const { name, surname, email, profile_image } = res.data;
+      const { name, surname, email, profile_image,password } = res.data;
       setUser({
         firstName: name,
         lastName: surname,
         email: email,
-        profileImage: profile_image || ''
+        profileImage: profile_image || '',
+        hasPassword: password !== null
       });
     })
     .catch(err => {
@@ -148,6 +151,42 @@ const handleRemovePhoto = () => {
   });
 };
 
+const handleSetPassword = (e) => {
+  e.preventDefault();
+
+  if (user.newPassword.length < 8) {
+    showSnackbar('Lozinka mora imati najmanje 8 karaktera.', "error");
+    return;
+  }
+
+  if (user.newPassword !== user.confirmPassword) {
+    showSnackbar('Lozinke se ne poklapaju.', "error");
+    return;
+  }
+
+  axios.post(`http://localhost:8000/users/${id}/set-password`, {
+    new_password: user.newPassword,
+    confirm_password: user.confirmPassword
+  }, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  })
+    .then(() => {
+      showSnackbar('Lozinka uspješno postavljena.');
+      setUser(prev => ({
+        ...prev,
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: '',
+        hasPassword: true  
+      }));
+    })
+    .catch(err => {
+      console.error('Greška pri postavljanju lozinke:', err);
+      showSnackbar('Došlo je do greške.', "error");
+    });
+};
 
 
   return (
@@ -283,47 +322,73 @@ const handleRemovePhoto = () => {
               </section>
             )}
 
-            {activeTab === 'security' && (
-              <section className="profile-section">
-                <div className="section-header">
-                  <h2>Sigurnosne postavke</h2>
-                  <p>Postavi lozinku i prilagodi sigurnosne opcije.</p>
-                </div>
-                <form onSubmit={handlePasswordChange}>
-                  <div className="form-group">
-                    <label htmlFor="currentPassword">Trenutna lozinka</label>
-                    <input
-                      type="password"
-                      id="currentPassword"
-                      onChange={(e) => setUser({ ...user, currentPassword: e.target.value })}
-                    />
-                  </div>
+           {activeTab === 'security' && (
+  <section className="profile-section">
+    <div className="section-header">
+      <h2>Sigurnosne postavke</h2>
+      <p>Postavi lozinku i prilagodi sigurnosne opcije.</p>
+    </div>
 
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label htmlFor="newPassword">Nova lozinka</label>
-                      <input
-                        type="password"
-                        id="newPassword"
-                        onChange={(e) => setUser({ ...user, newPassword: e.target.value })}
-                      />
-                      <span className="password-hint">Treba imati minimalno 8 karaktera</span>
-                    </div>
+    {!user.hasPassword ? (
+      <form onSubmit={handleSetPassword}>
+        <div className="form-row">
+          <div className="form-group">
+            <label htmlFor="newPassword">Nova lozinka</label>
+            <input
+              type="password"
+              id="newPassword"
+              onChange={(e) => setUser({ ...user, newPassword: e.target.value })}
+            />
+          </div>
+          <div className="form-group">
+            <label htmlFor="confirmPassword">Potvrdi lozinku</label>
+            <input
+              type="password"
+              id="confirmPassword"
+              onChange={(e) => setUser({ ...user, confirmPassword: e.target.value })}
+            />
+          </div>
+        </div>
+        <button type="submit" className="save-btn">Postavi lozinku</button>
+      </form>
+    ) : (
+      <form onSubmit={handlePasswordChange}>
+        <div className="form-group">
+          <label htmlFor="currentPassword">Trenutna lozinka</label>
+          <input
+            type="password"
+            id="currentPassword"
+            onChange={(e) => setUser({ ...user, currentPassword: e.target.value })}
+          />
+        </div>
 
-                    <div className="form-group">
-                      <label htmlFor="confirmPassword">Unesite ponovo lozinku</label>
-                      <input
-                        type="password"
-                        id="confirmPassword"
-                        onChange={(e) => setUser({ ...user, confirmPassword: e.target.value })}
-                      />
-                    </div>
-                  </div>
+        <div className="form-row">
+          <div className="form-group">
+            <label htmlFor="newPassword">Nova lozinka</label>
+            <input
+              type="password"
+              id="newPassword"
+              onChange={(e) => setUser({ ...user, newPassword: e.target.value })}
+            />
+            <span className="password-hint">Treba imati minimalno 8 karaktera</span>
+          </div>
 
-                  <button type="submit" className="save-btn">Sačuvaj</button>
-                </form>
-              </section>
-            )}
+          <div className="form-group">
+            <label htmlFor="confirmPassword">Unesite ponovo lozinku</label>
+            <input
+              type="password"
+              id="confirmPassword"
+              onChange={(e) => setUser({ ...user, confirmPassword: e.target.value })}
+            />
+          </div>
+        </div>
+
+        <button type="submit" className="save-btn">Sačuvaj</button>
+      </form>
+    )}
+  </section>
+)}
+
           </div>
         </div>
       </div>
@@ -345,5 +410,6 @@ const handleRemovePhoto = () => {
     </>
   );
 }
+
 
 export default Profil;

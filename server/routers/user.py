@@ -21,8 +21,15 @@ from datetime import datetime, timezone, timedelta
 import shutil
 import os
 from uuid import uuid4
+from server.schemas.user import GoogleCompleteInviteRequest
+from server.services.invite_google_service import accept_invite_with_google
 
 from fastapi import UploadFile, File, Depends, HTTPException
+from server.schemas.user import GoogleLoginRequest
+from server.services.auth_google_service import login_google_user
+from server.schemas.user import SetPasswordRequest
+from server.services.user import set_user_password
+
 
 
 from typing import List
@@ -303,3 +310,21 @@ def delete_profile_image(user_id: int, db: Session = Depends(get_db)):
         db.commit()
 
     return {"message": "Profilna slika je obrisana"}
+
+
+
+@router.post("/accept-invite/google/{invite_id}")
+def accept_invite_google(invite_id: int, payload: GoogleCompleteInviteRequest, db: Session = Depends(get_db)):
+    return accept_invite_with_google(invite_id, payload.id_token, db)
+@router.post("/login/google")
+def login_with_google(payload: GoogleLoginRequest, db: Session = Depends(get_db)):
+    return login_google_user(payload.id_token, db)
+
+@router.post("/{user_id}/set-password")
+def set_password(user_id: int, payload: SetPasswordRequest, db: Session = Depends(get_db)):
+    return set_user_password(
+        db=db,
+        user_id=user_id,
+        new_password=payload.new_password,
+        confirm_password=payload.confirm_password
+    )
