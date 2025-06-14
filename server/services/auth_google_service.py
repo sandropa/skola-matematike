@@ -1,5 +1,3 @@
-
-
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from server.models.user import User
@@ -19,9 +17,7 @@ def login_google_user(id_token_str: str, db: Session):
         if not user:
             raise HTTPException(status_code=404, detail="Korisnik sa ovim emailom ne postoji.")
 
-        if user.password:
-            raise HTTPException(status_code=400, detail="Ovaj nalog koristi lozinku. Prijavite se klasično.")
-
+      
         token = create_access_token(data={"sub": user.email})
         return {
             "access_token": token,
@@ -32,5 +28,5 @@ def login_google_user(id_token_str: str, db: Session):
 
     except ValueError:
         raise HTTPException(status_code=400, detail="Nevažeći Google token.")
-    except Exception:
+    except Exception as e:
         raise HTTPException(status_code=500, detail="Greška na serveru.")
