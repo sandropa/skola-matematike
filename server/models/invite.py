@@ -6,7 +6,7 @@ class Invite(Base):
     __tablename__ = "invites"
 
     id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, nullable=False)
+    email = Column(String, unique=True, nullable=True)
     name = Column(String(100))
     surname = Column(String(100))
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
