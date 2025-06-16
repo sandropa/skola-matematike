@@ -25,40 +25,43 @@ export default function Pocetna() {
   const [copiedId, setCopiedId] = useState(null);
   const navigate = useNavigate();
 
-  // Function to remember which lecture was opened
 const rememberOpenedLecture = (id) => {
-  let recent = JSON.parse(localStorage.getItem("recentLectures")) || [];
+  const userId = localStorage.getItem("user_id");
+  if (!userId) return;
+
+  const key = `recentLectures_${userId}`;
+  let recent = JSON.parse(localStorage.getItem(key)) || [];
   recent = recent.filter((item) => item !== id);
   recent.unshift(id);
-  localStorage.setItem("recentLectures", JSON.stringify(recent));
+  localStorage.setItem(key, JSON.stringify(recent));
 };
 
 
+useEffect(() => {
+  axios
+    .get("http://localhost:8000/problemsets")
+    .then((res) => {
+      const data = res.data;
+      const userId = localStorage.getItem("user_id");
+      const key = `recentLectures_${userId}`;
+      const recent = JSON.parse(localStorage.getItem(key)) || [];
 
-
-  useEffect(() => {
-    axios
-      .get("http://localhost:8000/problemsets")
-      .then((res) => {
-  const data = res.data;
-  const recent = JSON.parse(localStorage.getItem("recentLectures")) || [];
-
-  const sorted = [...data].sort((a, b) => {
-    const aIndex = recent.indexOf(a.id);
-    const bIndex = recent.indexOf(b.id);
-    if (aIndex === -1 && bIndex === -1) return 0;
-    if (aIndex === -1) return 1;
-    if (bIndex === -1) return -1;
-    return aIndex - bIndex;
-  });
-
-  setProjects(sorted);
-})
-
-      .catch((err) => {
-        console.error("Greška prilikom dohvatanja predavanja:", err);
+      const sorted = [...data].sort((a, b) => {
+        const aIndex = recent.indexOf(a.id);
+        const bIndex = recent.indexOf(b.id);
+        if (aIndex === -1 && bIndex === -1) return 0;
+        if (aIndex === -1) return 1;
+        if (bIndex === -1) return -1;
+        return aIndex - bIndex;
       });
-  }, []);
+
+      setProjects(sorted);
+    })
+    .catch((err) => {
+      console.error("Greška prilikom dohvatanja predavanja:", err);
+    });
+}, []);
+
   const filtriraniProjekti = projects.filter((project) =>
   project.title.toLowerCase().includes(searchTerm.toLowerCase())
 );
