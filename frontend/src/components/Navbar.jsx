@@ -10,8 +10,10 @@ function Navbar() {
   const navigate = useNavigate();
 
 const handleLogout = () => {
-  localStorage.clear(); 
-  navigate('/');   
+  localStorage.removeItem('token');
+  localStorage.removeItem('user_id');
+  localStorage.removeItem('role');
+  navigate('/'); 
 };
   
   return (
