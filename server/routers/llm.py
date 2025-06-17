@@ -37,6 +37,15 @@ async def fix_latex(
     stream = await ai_service.fix_latex(user_input=request.code)
     return StreamingResponse(stream)
 
+@router.post("/fix-grammar", summary="Fix grammar and improve text.")
+async def fix_grammar(
+    request: LatexRequest = Body(...),
+    gemini_service: GeminiService = Depends(get_gemini_service),
+):
+    ai_service = AIService(gemini=gemini_service)
+    stream = await ai_service.fix_grammar(user_input=request.code)
+    return StreamingResponse(stream)
+
 
 @router.post("/extract-latex-from-image", summary="Extracts LaTeX code from image.")
 async def extract_latex_from_image(

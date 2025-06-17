@@ -26,6 +26,14 @@ const features = [
     streaming: true,
   },
   {
+    id: 'fix-grammar',
+    label: 'Fix Grammar & Text',
+    route: '/llm/fix-grammar',
+    contextMenuGroupId: '1_modification',
+    contextMenuOrder: 1.7,
+    streaming: true,
+  },
+  {
     id: 'replace-with-x',
     label: 'Replace with X',
     route: '/llm/replace-with-x',

@@ -61,11 +61,6 @@ class AIService:
     ) -> AsyncIterator[str]:
         system_prompt = SYSTEM_PROMPTS["fix_latex"]
         chosen_model = model or DEFAULT_MODEL
-        # response_schema = types.Schema(
-        #     type=types.Type.OBJECT,
-        #     required=["fixed_latex_code"],
-        #     properties={"fixed_latex_code": types.Schema(type=types.Type.STRING)},
-        # )
         return self.gemini.stream(
             model=chosen_model,
             system_prompt=system_prompt,
@@ -73,8 +68,25 @@ class AIService:
             temperature=temperature,
             top_p=top_p,
             thinking_budget=thinking_budget,
-            # response_mime_type="application/json",
-            # response_schema=response_schema,
+        )
+    
+    async def fix_grammar(
+        self,
+        user_input,
+        model: Optional[str] = None,
+        temperature: float = 0.0,
+        top_p: float = 1.0,
+        thinking_budget: Optional[int] = None,
+    ) -> AsyncIterator[str]:
+        system_prompt = SYSTEM_PROMPTS["fix_grammar"]
+        chosen_model = model or DEFAULT_MODEL
+        return self.gemini.stream(
+            model=chosen_model,
+            system_prompt=system_prompt,
+            user_input_text=user_input,
+            temperature=temperature,
+            top_p=top_p,
+            thinking_budget=thinking_budget,
         )
     
     async def extract_latex_from_image(
