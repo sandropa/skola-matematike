@@ -16,6 +16,10 @@ from .routers import problems
 from .routers import problemsets
 from .routers import user
 from .routers import llm
+from .routers.tag_router import router as tag_router
+
+from .routers.lecture_tag_router import router as lecture_tag_router
+
 
 # Import the settings from your config file (assuming config.py loads .env)
 from .config import settings
@@ -60,6 +64,8 @@ app.include_router(problems.router)
 app.include_router(problemsets.router)
 app.include_router(user.router)
 app.include_router(llm.router)
+app.include_router(lecture_tag_router)
+app.include_router(tag_router)
 
 # --- Pydantic Models ---
 class LatexInput(BaseModel):
