@@ -12,6 +12,14 @@ import "./PocetnaStranica.css";
 import { Link, useNavigate } from 'react-router-dom';
 import { User as UserIcon, Settings as SettingsIcon } from 'lucide-react';
 import { Copy, Check } from "lucide-react";
+import LocalOfferIcon from '@mui/icons-material/LocalOffer';
+import TagDropdown from '../../components/TagDropdown';
+import AddTagDialog from '../../components/AddTagDialog';
+import SiderbarTags from '../../components/SidebarTags';
+
+
+
+
 
 
 
@@ -24,6 +32,21 @@ export default function Pocetna() {
   const [problems, setProblems] = useState([]);
   const [copiedId, setCopiedId] = useState(null);
   const navigate = useNavigate();
+  const [openTagDialog, setOpenTagDialog] = useState(false);
+  const [selectedLectureId, setSelectedLectureId] = useState(null);
+  const [openAddTag, setOpenAddTag] = useState(false);
+  const [tags, setTags] = useState([]);
+
+useEffect(() => {
+  axios
+    .get("http://localhost:8000/tags")
+    .then((res) => setTags(res.data))
+    .catch((err) => console.error("Greška prilikom dohvatanja tagova:", err));
+}, []);
+
+
+  
+
 
 const rememberOpenedLecture = (id) => {
   const userId = localStorage.getItem("user_id");
@@ -110,9 +133,40 @@ const copyToClipboard = (text, id) => {
 
             <div className="sidebar-section">
               <div className="section-title">Tagovi</div>
-              <div className="section-item">
-                <Plus className="icon small-icon" /> Dodaj tag
-              </div>
+             <div
+  className="section-item"
+  onClick={() => setOpenAddTag(true)}
+  style={{ cursor: "pointer" }}
+>
+  <Plus className="icon small-icon" /> Dodaj tag
+</div>
+<div className="tag-list">
+  {tags.map((tag) => (
+    <div
+      key={tag.id}
+      className="tag-item"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        marginBottom: "6px",
+      }}
+    >
+      <span
+        style={{
+          display: "inline-block",
+          width: "14px",
+          height: "14px",
+          backgroundColor: tag.color,
+          borderRadius: "50%",
+          marginRight: "8px",
+        }}
+      />
+      <span>{tag.name}</span>
+    </div>
+  ))}
+</div>
+
+
             </div>
           </div>
 
@@ -184,6 +238,15 @@ const copyToClipboard = (text, id) => {
 
                       />
                       <FileDown className="action-icon" title="Preuzmi PDF" />
+                       <LocalOfferIcon
+    className="action-icon"
+    titleAccess="Dodaj tag"
+    style={{ cursor: 'pointer' }}
+    onClick={() => {
+      setSelectedLectureId(project.id);
+      setOpenTagDialog(true);
+    }}
+  />
                     </td>
                   </tr>
                 ))}
@@ -237,10 +300,34 @@ const copyToClipboard = (text, id) => {
      )}
   </div>
 
+{openAddTag && (
+  <AddTagDialog
+    open={openAddTag}
+    onClose={() => setOpenAddTag(false)}
+    onTagAdded={() => {
+      setOpenAddTag(false);
+      
+    }}
+  />
+)}
 
           </div>
+          {openTagDialog && selectedLectureId && (
+  <TagDropdown
+    open={openTagDialog}
+    onClose={() => setOpenTagDialog(false)}
+    lectureId={selectedLectureId}
+    onSaved={() => {
+      setOpenTagDialog(false);
+    }}
+  />
+)}
+
         </div>
       </div>
+
+
+
    
   );
 }
