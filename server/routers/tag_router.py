@@ -21,6 +21,6 @@ def delete_tag(tag_id: int, db: Session = Depends(get_db)):
     tag_service.delete_tag(db, tag_id)
     return {"message": "Tag uspješno obrisan"}
 
-@router.get("/tags/{tag_id}/lectures", response_model=list[ProblemsetSchema])
+@router.get("/{tag_id}/lectures", response_model=list[ProblemsetSchema])
 def get_lectures_by_tag(tag_id: int, db: Session = Depends(get_db)):
     return tag_service.get_lectures_by_tag(tag_id, db)
