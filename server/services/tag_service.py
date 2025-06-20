@@ -3,6 +3,8 @@ from ..models.tag_model import Tag
 from ..models.lecture_tag_model import LectureTag
 from ..schemas.tag_schema import TagCreate
 from fastapi import HTTPException
+from ..models.problemset import Problemset 
+from ..models.lecture_tag_model import LectureTag 
 
 def create_tag(db: Session, tag_data: TagCreate) -> Tag:
     tag = Tag(name=tag_data.name, color=tag_data.color)
@@ -20,3 +22,12 @@ def delete_tag(db: Session, tag_id: int):
         raise HTTPException(status_code=404, detail="Tag nije pronađen")
     db.delete(tag)
     db.commit()
+    
+    
+def get_lectures_by_tag(tag_id: int, db: Session):
+    return (
+        db.query(Problemset)
+        .join(LectureTag, Problemset.id == LectureTag.lecture_id)
+        .filter(LectureTag.tag_id == tag_id)
+        .all()
+    )
