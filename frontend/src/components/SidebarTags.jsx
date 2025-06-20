@@ -4,16 +4,18 @@ import { Chip, Stack, Typography, Divider, Box } from "@mui/material";
 
 function Sidebar() {
   const [tagovi, setTagovi] = useState([]);
+  const fetchTags = () => {
+  axios
+    .get("http://localhost:8000/tags")
+    .then(res => setTagovi(res.data))
+    .catch(err => {
+      console.error("Greška prilikom dohvaćanja tagova:", err);
+    });
+};
 
   useEffect(() => {
-    axios.get("http://localhost:8000/tags")
-      .then(res => {
-        setTagovi(res.data);
-      })
-      .catch(err => {
-        console.error("Greška prilikom dohvaćanja tagova:", err);
-      });
-  }, []);
+  fetchTags();
+}, []);
 
   return (
     <Box sx={{ width: 250, padding: 2 }}>

@@ -37,17 +37,16 @@ export default function Pocetna() {
   const [openAddTag, setOpenAddTag] = useState(false);
   const [tags, setTags] = useState([]);
 
+const fetchTags = () => {
+    axios
+      .get("http://localhost:8000/tags")
+      .then((res) => setTags(res.data))
+      .catch((err) => console.error("Greška prilikom dohvatanja tagova:", err));
+  };
+
 useEffect(() => {
-  axios
-    .get("http://localhost:8000/tags")
-    .then((res) => setTags(res.data))
-    .catch((err) => console.error("Greška prilikom dohvatanja tagova:", err));
+  fetchTags();
 }, []);
-
-
-  
-
-
 const rememberOpenedLecture = (id) => {
   const userId = localStorage.getItem("user_id");
   if (!userId) return;
@@ -306,7 +305,7 @@ const copyToClipboard = (text, id) => {
     onClose={() => setOpenAddTag(false)}
     onTagAdded={() => {
       setOpenAddTag(false);
-      
+      fetchTags();
     }}
   />
 )}
