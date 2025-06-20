@@ -16,12 +16,14 @@ import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import TagDropdown from '../../components/TagDropdown';
 import AddTagDialog from '../../components/AddTagDialog';
 import SiderbarTags from '../../components/SidebarTags';
-
-
-
-
-
-
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
+  Button,
+} from "@mui/material";
 
 
 export default function Pocetna() {
@@ -36,6 +38,9 @@ export default function Pocetna() {
   const [selectedLectureId, setSelectedLectureId] = useState(null);
   const [openAddTag, setOpenAddTag] = useState(false);
   const [tags, setTags] = useState([]);
+  const [tagToDelete, setTagToDelete] = useState(null);
+
+
 
 const fetchTags = () => {
     axios
@@ -43,6 +48,14 @@ const fetchTags = () => {
       .then((res) => setTags(res.data))
       .catch((err) => console.error("Greška prilikom dohvatanja tagova:", err));
   };
+
+const deleteTag = () => {
+  axios.delete(`http://localhost:8000/tags/${tagToDelete}`)
+    .then(fetchTags)
+    .catch(err => console.error("Greška prilikom brisanja taga:", err))
+    .finally(() => setTagToDelete(null));
+};
+
 
 useEffect(() => {
   fetchTags();
@@ -160,7 +173,25 @@ const copyToClipboard = (text, id) => {
           marginRight: "8px",
         }}
       />
-      <span>{tag.name}</span>
+      <span style={{ flexGrow: 1 }}>{tag.name}</span>
+<button
+  onClick={() => setTagToDelete(tag.id)}
+  style={{
+    marginLeft: "8px",
+    background: "transparent",
+    border: "none",
+    color: "#999",
+    cursor: "pointer",
+    fontWeight: "bold",
+    fontSize: "14px",
+    lineHeight: "1"
+  }}
+  title="Obriši tag"
+>
+  ×
+</button>
+
+
     </div>
   ))}
 </div>
@@ -321,6 +352,44 @@ const copyToClipboard = (text, id) => {
     }}
   />
 )}
+<Dialog
+  open={!!tagToDelete}
+  onClose={() => setTagToDelete(null)}
+  PaperProps={{
+    sx: {
+      borderRadius: 3,
+      padding: 2,
+      minWidth: 360,
+      boxShadow: 6,
+    }
+  }}
+>
+  <DialogTitle
+    sx={{ fontWeight: 'bold', fontSize: 20, textAlign: 'center' }}
+  >
+    Da li sigurno želiš obrisati tag?
+  </DialogTitle>
+
+  <DialogActions sx={{ justifyContent: 'center', gap: 2, mt: 1 }}>
+    <Button
+      variant="outlined"
+      onClick={() => setTagToDelete(null)}
+      sx={{ borderRadius: 2, textTransform: 'none' }}
+    >
+      Odustani
+    </Button>
+    <Button
+      variant="contained"
+      color="error"
+      onClick={deleteTag}
+      sx={{ borderRadius: 2, textTransform: 'none' }}
+    >
+      Obriši
+    </Button>
+  </DialogActions>
+</Dialog>
+
+
 
         </div>
       </div>
