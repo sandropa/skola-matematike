@@ -285,3 +285,11 @@ body {
   width: 20px;
   height: 20px;
 }
+.tag-list {
+  margin-top: 10px;
+}
+
+.tag-item {
+  font-size: 14px;
+  color: #333;
+}

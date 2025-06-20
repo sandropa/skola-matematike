@@ -153,3 +153,15 @@ ALTER TABLE users ADD COLUMN profile_image TEXT;
 ALTER TABLE users ADD COLUMN  role TEXT DEFAULT 'user';
 ALTER TABLE invites ADD COLUMN  role TEXT DEFAULT 'user';
 ALTER TABLE users ALTER COLUMN password DROP NOT NULL;
+
+CREATE TABLE tags (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    color TEXT DEFAULT '#CCCCCC'
+);
+
+CREATE TABLE lecture_tags (
+    lecture_id INTEGER REFERENCES problemsets(id) ON DELETE CASCADE,
+    tag_id INTEGER REFERENCES tags(id) ON DELETE CASCADE,
+    PRIMARY KEY (lecture_id, tag_id)
+);
