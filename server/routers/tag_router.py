@@ -14,3 +14,8 @@ def create_tag(tag: TagCreate, db: Session = Depends(get_db)):
 @router.get("/", response_model=List[TagOut])
 def get_tags(db: Session = Depends(get_db)):
     return tag_service.get_all_tags(db)
+
+@router.delete("/{tag_id}")
+def delete_tag(tag_id: int, db: Session = Depends(get_db)):
+    tag_service.delete_tag(db, tag_id)
+    return {"message": "Tag uspješno obrisan"}
