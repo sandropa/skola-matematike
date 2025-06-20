@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { Chip, Stack, Typography, Divider, Box } from "@mui/material";
 
-function Sidebar() {
+function Sidebar({ onTagClick }) {
   const [tagovi, setTagovi] = useState([]);
   const fetchTags = () => {
   axios
@@ -30,12 +30,14 @@ function Sidebar() {
           <Chip
             key={tag.id}
             label={tag.name}
+            onClick={() => onTagClick(tag.id)}
             sx={{
               backgroundColor: tag.color,
               color: "#fff",
               fontWeight: "bold",
               width: "fit-content",
-              cursor: "default"
+              
+              cursor: "pointer"
             }}
           />
         ))}

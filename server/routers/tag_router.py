@@ -4,6 +4,7 @@ from ..database import get_db
 from ..services import tag_service
 from ..schemas.tag_schema import TagCreate, TagOut
 from typing import List
+from ..schemas.problemset import ProblemsetSchema
 
 router = APIRouter(prefix="/tags", tags=["tags"])
 
@@ -19,3 +20,7 @@ def get_tags(db: Session = Depends(get_db)):
 def delete_tag(tag_id: int, db: Session = Depends(get_db)):
     tag_service.delete_tag(db, tag_id)
     return {"message": "Tag uspješno obrisan"}
+
+@router.get("/{tag_id}/lectures", response_model=list[ProblemsetSchema])
+def get_lectures_by_tag(tag_id: int, db: Session = Depends(get_db)):
+    return tag_service.get_lectures_by_tag(tag_id, db)

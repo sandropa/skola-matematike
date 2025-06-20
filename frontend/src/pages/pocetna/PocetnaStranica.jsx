@@ -39,6 +39,25 @@ export default function Pocetna() {
   const [openAddTag, setOpenAddTag] = useState(false);
   const [tags, setTags] = useState([]);
   const [tagToDelete, setTagToDelete] = useState(null);
+  const [activeTagId, setActiveTagId] = useState(null);
+
+   
+const handleTagClick = (tagId) => {
+
+  if (activeTagId === tagId) {
+    setActiveTagId(null);
+    axios.get("http://localhost:8000/problemsets")
+      .then((res) => setProjects(res.data))
+      .catch((err) => console.error("Greška prilikom dohvatanja svih predavanja:", err));
+  } else {
+    setActiveTagId(tagId);
+    axios.get(`http://localhost:8000/tags/${tagId}/lectures`)
+      .then((res) => setProjects(res.data))
+      .catch((err) => console.error("Greška prilikom filtriranja predavanja:", err));
+  }
+};
+
+
 
 
 
@@ -155,14 +174,21 @@ const copyToClipboard = (text, id) => {
 <div className="tag-list">
   {tags.map((tag) => (
     <div
-      key={tag.id}
-      className="tag-item"
-      style={{
-        display: "flex",
-        alignItems: "center",
-        marginBottom: "6px",
-      }}
-    >
+  key={tag.id}
+  className="tag-item"
+  onClick={() => handleTagClick(tag.id)}
+  style={{
+    display: "flex",
+    alignItems: "center",
+    marginBottom: "6px",
+    cursor: "pointer",
+    padding: "4px 6px",
+    borderRadius: "6px",
+    border: tag.id === activeTagId ? "2px solid #1976d2" : "none",
+    backgroundColor: tag.id === activeTagId ? "#e3f2fd" : "transparent"
+  }}
+>
+
       <span
         style={{
           display: "inline-block",
@@ -172,8 +198,16 @@ const copyToClipboard = (text, id) => {
           borderRadius: "50%",
           marginRight: "8px",
         }}
-      />
-      <span style={{ flexGrow: 1 }}>{tag.name}</span>
+      /><span
+  style={{
+    flexGrow: 1,
+    fontWeight: tag.id === activeTagId ? "bold" : "normal",
+    color: tag.id === activeTagId ? "#000" : "#333"
+  }}
+>
+  {tag.name}
+</span>
+
 <button
   onClick={() => setTagToDelete(tag.id)}
   style={{
