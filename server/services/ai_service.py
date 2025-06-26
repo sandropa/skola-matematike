@@ -6,6 +6,8 @@ from .gemini_service import GeminiService
 from .prompts import (
     SYSTEM_PROMPTS,
     HELLO_EXAMPLES,
+    FIX_GRAMMAR_EXAMPLES,
+    FIX_LATEX_EXAMPLES,
 )
 
 from ..config import settings
@@ -60,10 +62,12 @@ class AIService:
         thinking_budget: Optional[int] = None,
     ) -> AsyncIterator[str]:
         system_prompt = SYSTEM_PROMPTS["fix_latex"]
+        shots = FIX_LATEX_EXAMPLES
         chosen_model = model or DEFAULT_MODEL
         return self.gemini.stream(
             model=chosen_model,
             system_prompt=system_prompt,
+            shots=shots,
             user_input_text=user_input,
             temperature=temperature,
             top_p=top_p,
@@ -79,10 +83,12 @@ class AIService:
         thinking_budget: Optional[int] = None,
     ) -> AsyncIterator[str]:
         system_prompt = SYSTEM_PROMPTS["fix_grammar"]
+        shots = FIX_GRAMMAR_EXAMPLES
         chosen_model = model or DEFAULT_MODEL
         return self.gemini.stream(
             model=chosen_model,
             system_prompt=system_prompt,
+            shots=shots,
             user_input_text=user_input,
             temperature=temperature,
             top_p=top_p,
