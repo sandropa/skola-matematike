@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import "./PocetnaStranica.css";
 import { Link, useNavigate } from 'react-router-dom';
-import { User as UserIcon, Settings as SettingsIcon } from 'lucide-react';
+import { User as UserIcon } from 'lucide-react';
 import { Copy, Check } from "lucide-react";
 import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import TagDropdown from '../../components/TagDropdown';
@@ -257,7 +257,6 @@ const copyToClipboard = (text, id) => {
             <Link to={`/profil/${userId}`}>
               <UserIcon className="action-icon large-icon" />
             </Link>
-            <SettingsIcon className="action-icon large-icon" />
           </div>
         </div>
       </Drawer>
@@ -340,7 +339,6 @@ const copyToClipboard = (text, id) => {
             <Link to={`/profil/${userId}`}>
               <UserIcon className="action-icon large-icon" />
             </Link>
-            <SettingsIcon className="action-icon large-icon" />
           </div>
         </div>
 
