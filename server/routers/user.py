@@ -29,6 +29,10 @@ from server.schemas.user import GoogleLoginRequest
 from server.services.auth_google_service import login_google_user
 from server.schemas.user import SetPasswordRequest
 from server.services.user import set_user_password
+from server.services import email_service
+from server.services import image_service
+
+
 
 
 
@@ -123,27 +127,6 @@ def update_password(user_id: int, payload: PasswordUpdate, db: Session = Depends
         logger.error(f"Router: Unexpected error during password update: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Unexpected error during password update")
 
-EMAIL_ADDRESS = "hrmenager2025@gmail.com"
-EMAIL_PASSWORD = "fczv gsef gqyy oydb"
-EMAIL_HOST = "smtp.gmail.com"
-EMAIL_PORT = 587
-
-def send_email(to_email: str, invite_id: str):
-    msg = EmailMessage()
-    msg['Subject'] = "Invite za kreiranje predavačkog profila na Školi matematike"
-    msg['From'] = EMAIL_ADDRESS
-    msg['To'] = to_email
-    msg.set_content(f"Pozdrav, Pozvani ste da se registrujete kao predavač na platformi Škola Matematike. Kliknite na link ispod da biste kreirali svoj nalog:,http://localhost:5173/accept-invite/{invite_id}")
-
-    try:
-        with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as smtp:
-            smtp.starttls()
-            smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
-            smtp.send_message(msg)
-    except Exception as e:
-        print("SMTP ERROR:", str(e))  # ili logger.error(...)
-        raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
-
 
 @router.post("/send-invite")
 def send_invite(invite: InviteRequest, db: Session = Depends(get_db)):
@@ -160,7 +143,8 @@ def send_invite(invite: InviteRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_invite)
 
-    send_email(invite.to_email, new_invite.id)
+    email_service.send_invite_email(invite.to_email, new_invite.id)
+
 
     return {"message": f"Invitation sent and saved for {invite.to_email}"}
 
@@ -210,21 +194,7 @@ def update_user_role(user_id: int, payload: dict, db: Session = Depends(get_db))
     return {"message": "Uloga uspješno promijenjena"}
 
 
-def send_reset_email(to_email: str, reset_link: str):
-    msg = EmailMessage()
-    msg['Subject'] = "Reset lozinke - Škola matematike"
-    msg['From'] = EMAIL_ADDRESS
-    msg['To'] = to_email
-    msg.set_content(f"Pozdrav, Primili smo zahtjev za resetovanje Vaše lozinke na platformi Škola Matematike. Ako ste Vi pokrenuli ovaj zahtjev, kliknite na sljedeći link kako biste postavili novu lozinku:\n\n{reset_link}")
 
-    try:
-        with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as smtp:
-            smtp.starttls()
-            smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
-            smtp.send_message(msg)
-    except Exception as e:
-        print("SMTP ERROR:", str(e))
-        raise HTTPException(status_code=500, detail=f"Slanje emaila nije uspjelo: {str(e)}")
     
 @router.post("/password-reset-request")
 def request_password_reset(data: PasswordResetRequest, db: Session = Depends(get_db)):
@@ -240,7 +210,7 @@ def request_password_reset(data: PasswordResetRequest, db: Session = Depends(get
     db.commit()
 
     link = f"http://localhost:5173/reset-password?token={token}"
-    send_reset_email(user.email, link)
+    email_service.send_reset_email(user.email, link)
 
     return {"message": "Email sa linkom za reset je poslan."}
 
@@ -263,54 +233,16 @@ def reset_password(data: PasswordResetConfirm, db: Session = Depends(get_db)):
 
 
 
-UPLOAD_DIR = "uploaded_images"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-@router.post("/{user_id}/upload-photo")
+@router.post("/{user_id}/upload-photo", summary="Upload profile image")
 def upload_profile_image(user_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
-    filename = f"{uuid4()}_{file.filename}"
-    file_path = os.path.join(UPLOAD_DIR, filename)
-
-  
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-   
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        
-        raise HTTPException(status_code=404, detail="Korisnik nije pronađen")
-    
-    if user.profile_image:
-        old_path = user.profile_image.lstrip("/")
-        if os.path.exists(old_path):
-            os.remove(old_path)
-
-  
-    image_url = f"/uploaded_images/{filename}"
-    user.profile_image = image_url
-
-    db.commit()
-
-    return {"message": "Slika uspešno uploadovana", "image_path": image_url}
+    image_url = image_service.save_profile_image(db, user_id, file)
+    return {"message": "Slika uspješno uploadovana", "image_path": image_url}
 
 
-
-@router.delete("/{user_id}/delete-photo")
+@router.delete("/{user_id}/delete-photo", summary="Delete profile image")
 def delete_profile_image(user_id: int, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Korisnik nije pronađen")
-
-    if user.profile_image:
-        image_path = user.profile_image.lstrip("/")
-        if os.path.exists(image_path):
-            os.remove(image_path)
-        user.profile_image = None
-        db.commit()
-
+    image_service.delete_profile_image(db, user_id)
     return {"message": "Profilna slika je obrisana"}
-
 
 
 @router.post("/accept-invite/google/{invite_id}")
