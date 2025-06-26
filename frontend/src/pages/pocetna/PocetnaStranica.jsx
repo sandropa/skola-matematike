@@ -24,6 +24,9 @@ import {
   DialogActions,
   Button,
 } from "@mui/material";
+import { Drawer, IconButton } from "@mui/material";
+import MenuIcon from "@mui/icons-material/Menu";
+import useMediaQuery from "@mui/material/useMediaQuery";
 
 
 export default function Pocetna() {
@@ -40,8 +43,12 @@ export default function Pocetna() {
   const [tags, setTags] = useState([]);
   const [tagToDelete, setTagToDelete] = useState(null);
   const [activeTagId, setActiveTagId] = useState(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const isMobile = useMediaQuery('(max-width:900px)');
 
-   
+  const handleDrawerOpen = () => setDrawerOpen(true);
+  const handleDrawerClose = () => setDrawerOpen(false);
+
 const handleTagClick = (tagId) => {
 
   if (activeTagId === tagId) {
@@ -149,96 +156,190 @@ const copyToClipboard = (text, id) => {
 
   return (
     <div>
-      {}
-      
-
+      {/* Hamburger dugme za male ekrane, prikazuje se samo kad je drawer zatvoren */}
+      {isMobile && !drawerOpen && (
+        <IconButton
+          color="primary"
+          aria-label="open sidebar"
+          onClick={handleDrawerOpen}
+          sx={{
+            position: "fixed",
+            top: 72, // odmah ispod navbar-a (ako je navbar 64px visine, dodaj malo razmaka)
+            left: 16,
+            zIndex: 2000,
+            background: "white",
+            boxShadow: 1,
+            borderRadius: 2
+          }}
+        >
+          <MenuIcon />
+        </IconButton>
+      )}
+      {/* Drawer za sidebar */}
+      <Drawer
+        anchor="left"
+        open={drawerOpen}
+        onClose={handleDrawerClose}
+        sx={{ display: { md: "none" } }}
+      >
+        <div style={{ width: 260, padding: 24 }}>
+          <Link to="/editor">
+            <button className="full-width">
+              <Plus className="icon" /> Dodaj predavanje
+            </button>
+          </Link>
+          <div className="sidebar-section">
+            <div className="section-title">Tagovi</div>
+            <div
+              className="section-item"
+              onClick={() => setOpenAddTag(true)}
+              style={{ cursor: "pointer" }}
+            >
+              <Plus className="icon small-icon" /> Dodaj tag
+            </div>
+            <div className="tag-list">
+              {tags.map((tag) => (
+                <div
+                  key={tag.id}
+                  className="tag-item"
+                  onClick={() => handleTagClick(tag.id)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    marginBottom: "6px",
+                    cursor: "pointer",
+                    padding: "4px 6px",
+                    borderRadius: "6px",
+                    border: tag.id === activeTagId ? "2px solid #1976d2" : "none",
+                    backgroundColor: tag.id === activeTagId ? "#e3f2fd" : "transparent"
+                  }}
+                >
+                  <span
+                    style={{
+                      display: "inline-block",
+                      width: "14px",
+                      height: "14px",
+                      backgroundColor: tag.color,
+                      borderRadius: "50%",
+                      marginRight: "8px",
+                    }}
+                  />
+                  <span
+                    style={{
+                      flexGrow: 1,
+                      fontWeight: tag.id === activeTagId ? "bold" : "normal",
+                      color: tag.id === activeTagId ? "#000" : "#333"
+                    }}
+                  >
+                    {tag.name}
+                  </span>
+                  <button
+                    onClick={() => setTagToDelete(tag.id)}
+                    style={{
+                      marginLeft: "8px",
+                      background: "transparent",
+                      border: "none",
+                      color: "#999",
+                      cursor: "pointer",
+                      fontWeight: "bold",
+                      fontSize: "14px",
+                      lineHeight: "1"
+                    }}
+                    title="Obriši tag"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="sidebar-section bottom-icons">
+            <Link to={`/profil/${userId}`}>
+              <UserIcon className="action-icon large-icon" />
+            </Link>
+            <SettingsIcon className="action-icon large-icon" />
+          </div>
+        </div>
+      </Drawer>
       <div className="container">
-        {}
-        <div className="sidebar">
+        {/* Sidebar samo na velikim ekranima */}
+        <div className="sidebar" style={{ display: isMobile ? "none" : "flex" }}>
           <div>
             <Link to="/editor">
               <button className="full-width">
                 <Plus className="icon" /> Dodaj predavanje
               </button>
             </Link>
-
             <div className="sidebar-section">
               <div className="section-title">Tagovi</div>
-             <div
-  className="section-item"
-  onClick={() => setOpenAddTag(true)}
-  style={{ cursor: "pointer" }}
->
-  <Plus className="icon small-icon" /> Dodaj tag
-</div>
-<div className="tag-list">
-  {tags.map((tag) => (
-    <div
-  key={tag.id}
-  className="tag-item"
-  onClick={() => handleTagClick(tag.id)}
-  style={{
-    display: "flex",
-    alignItems: "center",
-    marginBottom: "6px",
-    cursor: "pointer",
-    padding: "4px 6px",
-    borderRadius: "6px",
-    border: tag.id === activeTagId ? "2px solid #1976d2" : "none",
-    backgroundColor: tag.id === activeTagId ? "#e3f2fd" : "transparent"
-  }}
->
-
-      <span
-        style={{
-          display: "inline-block",
-          width: "14px",
-          height: "14px",
-          backgroundColor: tag.color,
-          borderRadius: "50%",
-          marginRight: "8px",
-        }}
-      /><span
-  style={{
-    flexGrow: 1,
-    fontWeight: tag.id === activeTagId ? "bold" : "normal",
-    color: tag.id === activeTagId ? "#000" : "#333"
-  }}
->
-  {tag.name}
-</span>
-
-<button
-  onClick={() => setTagToDelete(tag.id)}
-  style={{
-    marginLeft: "8px",
-    background: "transparent",
-    border: "none",
-    color: "#999",
-    cursor: "pointer",
-    fontWeight: "bold",
-    fontSize: "14px",
-    lineHeight: "1"
-  }}
-  title="Obriši tag"
->
-  ×
-</button>
-
-
-    </div>
-  ))}
-</div>
-
-
+              <div
+                className="section-item"
+                onClick={() => setOpenAddTag(true)}
+                style={{ cursor: "pointer" }}
+              >
+                <Plus className="icon small-icon" /> Dodaj tag
+              </div>
+              <div className="tag-list">
+                {tags.map((tag) => (
+                  <div
+                    key={tag.id}
+                    className="tag-item"
+                    onClick={() => handleTagClick(tag.id)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      marginBottom: "6px",
+                      cursor: "pointer",
+                      padding: "4px 6px",
+                      borderRadius: "6px",
+                      border: tag.id === activeTagId ? "2px solid #1976d2" : "none",
+                      backgroundColor: tag.id === activeTagId ? "#e3f2fd" : "transparent"
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: "inline-block",
+                        width: "14px",
+                        height: "14px",
+                        backgroundColor: tag.color,
+                        borderRadius: "50%",
+                        marginRight: "8px",
+                      }}
+                    />
+                    <span
+                      style={{
+                        flexGrow: 1,
+                        fontWeight: tag.id === activeTagId ? "bold" : "normal",
+                        color: tag.id === activeTagId ? "#000" : "#333"
+                      }}
+                    >
+                      {tag.name}
+                    </span>
+                    <button
+                      onClick={() => setTagToDelete(tag.id)}
+                      style={{
+                        marginLeft: "8px",
+                        background: "transparent",
+                        border: "none",
+                        color: "#999",
+                        cursor: "pointer",
+                        fontWeight: "bold",
+                        fontSize: "14px",
+                        lineHeight: "1"
+                      }}
+                      title="Obriši tag"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-
           <div className="sidebar-section bottom-icons">
             <Link to={`/profil/${userId}`}>
-  <UserIcon className="action-icon large-icon" />
-</Link>
-
+              <UserIcon className="action-icon large-icon" />
+            </Link>
             <SettingsIcon className="action-icon large-icon" />
           </div>
         </div>

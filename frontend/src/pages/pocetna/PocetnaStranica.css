@@ -232,6 +232,23 @@ body {
       min-width: 100%;
     }
   }
+
+  @media (max-width: 900px) {
+    .main-header .search-container {
+      margin-left: 48px;
+      max-width: none;
+    }
+    .main-header .search-input {
+      max-width: none;
+    }
+    .hamburger-btn {
+      position: fixed;
+      top: 100px;
+      left: 16px;
+      z-index: 2000;
+    }
+  }
+
 .main-header {
   display: flex;
   justify-content: space-between;
