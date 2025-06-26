@@ -149,7 +149,7 @@ def accept_invite(invite_id: int, request: CompleteInviteRequest, db: Session = 
         email=invite.email,
         name=invite.name,
         surname=invite.surname,
-        password=hash_password(request.password),
+        password=get_password_hash(request.password),
         role=invite.role or "user" 
     )
 
@@ -194,6 +194,7 @@ def request_password_reset(data: PasswordResetRequest, db: Session = Depends(get
 
     return {"message": "Email sa linkom za reset je poslan."}
 
+
 @router.post("/password-reset-confirm")
 def reset_password(data: PasswordResetConfirm, db: Session = Depends(get_db)):
     reset = db.query(PasswordReset).filter(PasswordReset.token == data.token).first()
@@ -228,6 +229,7 @@ def delete_profile_image(user_id: int, db: Session = Depends(get_db)):
 @router.post("/accept-invite/google/{invite_id}")
 def accept_invite_google(invite_id: int, payload: GoogleCompleteInviteRequest, db: Session = Depends(get_db)):
     return accept_invite_with_google(invite_id, payload.id_token, db)
+
 @router.post("/login/google")
 def login_with_google(payload: GoogleLoginRequest, db: Session = Depends(get_db)):
     return login_google_user(payload.id_token, db)
