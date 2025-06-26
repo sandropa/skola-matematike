@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+
 import axios from 'axios';
 
 function ResetPassword() {
@@ -9,6 +11,8 @@ function ResetPassword() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [message, setMessage] = useState('');
+  const navigate = useNavigate();
+
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -23,7 +27,10 @@ function ResetPassword() {
         token,
         new_password: newPassword,
       });
-      setMessage('Lozinka je uspješno promijenjena. Možete se sada prijaviti.');
+     setMessage('Lozinka je uspješno promijenjena. Možete se sada prijaviti.');
+    setTimeout(() => {
+      navigate('/');
+    }, 2000);
     } catch (err) {
       console.error(err);
       setMessage('Neispravan ili istekao token.');
