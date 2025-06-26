@@ -31,10 +31,7 @@ from server.schemas.user import SetPasswordRequest
 from server.services.user import set_user_password
 from server.services import email_service
 from server.services import image_service
-
-
-
-
+from server.services import profile_service
 
 from typing import List
 
@@ -82,50 +79,35 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
     return None
 
+
 @router.put("/{user_id}", response_model=UserOut, summary="Update user's name and surname")
 def update_user(user_id: int, user_update: UserPersonalUpdate, db: Session = Depends(get_db)):
-    logger.info(f"Router: Request received for PUT /users/{user_id}")
-
-    # Dozvoljene izmjene samo za name i surname
     if hasattr(user_update, "password") and user_update.password:
         raise HTTPException(status_code=400, detail="Password cannot be updated here.")
 
-    try:
-        updated_user = user_service.update_name_surname(db, user_id, user_update.name, user_update.surname)
-        if not updated_user:
-            raise HTTPException(status_code=404, detail="User not found")
-        return updated_user
-    except SQLAlchemyError as e:
-        logger.error(f"Router: DB error during user update: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Database error during update")
-    except Exception as e:
-        logger.error(f"Router: Unexpected error during user update: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Unexpected error during update")
+    return profile_service.update_name_and_surname(
+        db=db,
+        user_id=user_id,
+        name=user_update.name,
+        surname=user_update.surname
+    )
 
 
 @router.put("/{user_id}/password", summary="Change user's password")
 def update_password(user_id: int, payload: PasswordUpdate, db: Session = Depends(get_db)):
-    logger.info(f"Router: Request received for PUT /users/{user_id}/password")
-
     if payload.new_password != payload.confirm_password:
         raise HTTPException(status_code=400, detail="New passwords do not match.")
 
-    try:
-        success = user_service.update_password(
-            db=db,
-            user_id=user_id,
-            current_password=payload.current_password,
-            new_password=payload.new_password
-        )
-        if not success:
-            raise HTTPException(status_code=403, detail="Current password is incorrect or user not found.")
-        return {"message": "Password updated successfully"}
-    except SQLAlchemyError as e:
-        logger.error(f"Router: DB error during password update: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Database error during password update")
-    except Exception as e:
-        logger.error(f"Router: Unexpected error during password update: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Unexpected error during password update")
+    profile_service.update_user_password(
+        db=db,
+        user_id=user_id,
+        current_password=payload.current_password,
+        new_password=payload.new_password
+    )
+
+    return {"message": "Password updated successfully"}
+
+
 
 
 @router.post("/send-invite")
@@ -177,8 +159,9 @@ def accept_invite(invite_id: int, request: CompleteInviteRequest, db: Session = 
     db.add(new_user)
     db.delete(invite)
     db.commit()
-
     return {"message": "Registracija uspešna!"}
+
+
 @router.put("/{user_id}/role")
 def update_user_role(user_id: int, payload: dict, db: Session = Depends(get_db)):
     new_role = payload.get("role")
