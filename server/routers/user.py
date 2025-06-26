@@ -32,6 +32,8 @@ from server.services.user import set_user_password
 from server.services import email_service
 from server.services import image_service
 from server.services import profile_service
+from server.services.user import get_password_hash
+
 
 from typing import List
 
@@ -131,11 +133,6 @@ def send_invite(invite: InviteRequest, db: Session = Depends(get_db)):
     return {"message": f"Invitation sent and saved for {invite.to_email}"}
 
 
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-def hash_password(password: str):
-    return pwd_context.hash(password)
 
 @router.post("/accept-invite/{invite_id}")
 def accept_invite(invite_id: int, request: CompleteInviteRequest, db: Session = Depends(get_db)):
