@@ -400,7 +400,17 @@ const copyToClipboard = (text, id) => {
 }}
 
                       />
-                      <FileDown className="action-icon" title="Preuzmi PDF" />
+                    <FileDown
+  className="action-icon"
+  title="Preuzmi PDF"
+  style={{ cursor: "pointer" }}
+  onClick={() => {
+    const url = `http://localhost:8000/problemsets/${project.id}/pdf`;
+    window.open(url, "_blank"); 
+   
+  }}
+/>
+
                        <LocalOfferIcon
     className="action-icon"
     titleAccess="Dodaj tag"
