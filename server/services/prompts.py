@@ -17,6 +17,9 @@ FIX_GRAMMAR_EXAMPLES: list[tuple[str, str]] = [
     ("\\item \\text{Odreditti sve vrijednosti realnog parametra } m \\text{ takvog da jednačina } x^2 + 2(m + 1)x + 9m - 5 = 0 \\text{ ima oba rješenja negativna.}", "\\item \\text{Odrediti sve vrijednosti realnog parametra } m \\text{ takvog da jednačina } x^2 + 2(m + 1)x + 9m - 5 = 0 \\text{ ima oba rješenja negativna.}"),
     ("\\item \\text{Rešiti sistem jednačina u skupu realnih brojeva.}", "\\item \\text{Riješiti sistem jednačina u skupu realnih brojeva.}"),
     ("\\item \\text{Nađi sve pozitivne cijele brojeve } n \\text{ za koje je broj } n^2 + 3n + 2 \\text{ potpun kvadrat.}", "\\item \\text{Nađi sve pozitivne cijele brojeve } n \\text{ za koje je broj } n^2 + 3n + 2 \\text{ potpun kvadrat.}"),
+    ("\\item \\text{Izračunajte vrednost izraza } (a + b)^2 \\text{ kada je } a = 3 \\text{ i } b = 4.", "\\item \\text{Izračunajte vrijednost izraza } (a + b)^2 \\text{ kada je } a = 3 \\text{ i } b = 4."),
+    ("\\item \\text{Nađite sve realne brojeve } x \\text{ za koje važi nejednakost } |x - 2| < 3.", "\\item \\text{Nađite sve realne brojeve } x \\text{ za koje važi nejednakost } |x - 2| < 3."),
+    ("\\item \\text{Dokazati da je funkcija } f(x) = x^3 \\text{ rastuća na celom domenu.}", "\\item \\text{Dokazati da je funkcija } f(x) = x^3 \\text{ rastuća na cijelom domenu.}"),
 ]
 
 FIX_LATEX_EXAMPLES: list[tuple[str, str]] = [
@@ -24,4 +27,8 @@ FIX_LATEX_EXAMPLES: list[tuple[str, str]] = [
     ("\\item \\text{Naći sumu: } sum_{k=1}^{n} k^2", "\\item \\text{Naći sumu: } $\\sum_{k=1}^{n} k^2$"),
     ("\\item \\text{Rešiti kvadratnu jednačinu: } ax^2 + bx + c = 0 \\text{ gdje je } a != 0", "\\item \\text{Rešiti kvadratnu jednačinu: } $ax^2 + bx + c = 0$ \\text{ gdje je } $a \\neq 0$"),
     ("\\item \\text{Rešiti nejednačinu: } sqrt(x^2 - 4) > x - 2", "\\item \\text{Rešiti nejednačinu: } $\\sqrt{x^2 - 4} > x - 2$"),
+    ("\\item \\text{Izračunati limes: } lim_{x to 0} (sin x)/x", "\\item \\text{Izračunati limes: } $\\lim_{x \\to 0} \\frac{\\sin x}{x}$"),
+    ("\\item \\text{Naći derivaciju funkcije: } f(x) = e^x * ln(x)", "\\item \\text{Naći derivaciju funkcije: } $f(x) = e^x \\cdot \\ln(x)$"),
+    ("\\item \\text{Rešiti sistem: } x + y = 5, x - y = 1", "\\item \\text{Rešiti sistem: } $x + y = 5$, $x - y = 1$"),
+    ("\\item \\text{Izračunati: } (a + b)^2 = a^2 + 2ab + b^2", "\\item \\text{Izračunati: } $(a + b)^2 = a^2 + 2ab + b^2$"),
 ]
