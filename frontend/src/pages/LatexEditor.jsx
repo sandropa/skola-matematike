@@ -19,7 +19,7 @@ const API_BASE_URL = "http://localhost:8000";
 const features = [
   {
     id: 'fix-latex',
-    label: 'Fix LaTeX',
+    label: 'Popravi LaTeX',
     route: '/llm/fix-latex',
     contextMenuGroupId: '1_modification',
     contextMenuOrder: 1.6,
@@ -27,18 +27,10 @@ const features = [
   },
   {
     id: 'fix-grammar',
-    label: 'Fix Grammar & Text',
+    label: 'Popravi tekst',
     route: '/llm/fix-grammar',
     contextMenuGroupId: '1_modification',
     contextMenuOrder: 1.7,
-    streaming: true,
-  },
-  {
-    id: 'replace-with-x',
-    label: 'Replace with X',
-    route: '/llm/replace-with-x',
-    contextMenuGroupId: '1_modification',
-    contextMenuOrder: 1.5,
     streaming: true,
   },
   // Add new features here
