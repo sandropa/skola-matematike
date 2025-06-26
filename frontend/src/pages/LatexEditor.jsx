@@ -253,13 +253,13 @@ function EditorPanel({ code, onChange, editorRef, monacoRef, onImageProcessing, 
   const handleSaveDraft = async () => {
     const editor = editorRef.current;
     if (!editor) {
-      setSaveStatus({ success: false, message: 'Editor not ready' });
+      setSaveStatus({ success: false, message: 'Editor nije spreman' });
       return;
     }
 
     const latexCode = editor.getValue();
     if (!latexCode.trim()) {
-      setSaveStatus({ success: false, message: 'LaTeX code is empty' });
+      setSaveStatus({ success: false, message: 'LaTeX kod je prazan' });
       return;
     }
 
@@ -281,7 +281,7 @@ function EditorPanel({ code, onChange, editorRef, monacoRef, onImageProcessing, 
 
         if (!createResponse.ok) {
           const errorData = await createResponse.json();
-          throw new Error(errorData.detail || 'Failed to create problemset');
+          throw new Error(errorData.detail || 'Greška pri kreiranju problemset-a');
         }
 
         const newProblemset = await createResponse.json();
@@ -302,26 +302,26 @@ function EditorPanel({ code, onChange, editorRef, monacoRef, onImageProcessing, 
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to save draft');
+        throw new Error(errorData.detail || 'Greška pri spašavanju skice');
       }
 
-      setSaveStatus({ success: true, message: 'Draft saved successfully' });
+      setSaveStatus({ success: true, message: 'Skica uspješno sačuvana' });
     } catch (error) {
       console.error('Error saving draft:', error);
-      setSaveStatus({ success: false, message: error.message || 'Failed to save draft' });
+      setSaveStatus({ success: false, message: error.message || 'Greška pri spašavanju skice' });
     }
   };
 
   const handleFinalize = async () => {
     const editor = editorRef.current;
     if (!editor) {
-      setSaveStatus({ success: false, message: 'Editor not ready' });
+      setSaveStatus({ success: false, message: 'Editor nije spreman' });
       return;
     }
 
     const latexCode = editor.getValue();
     if (!latexCode.trim()) {
-      setSaveStatus({ success: false, message: 'LaTeX code is empty' });
+      setSaveStatus({ success: false, message: 'LaTeX kod je prazan' });
       return;
     }
 
@@ -343,7 +343,7 @@ function EditorPanel({ code, onChange, editorRef, monacoRef, onImageProcessing, 
 
         if (!createResponse.ok) {
           const errorData = await createResponse.json();
-          throw new Error(errorData.detail || 'Failed to create problemset');
+          throw new Error(errorData.detail || 'Greška pri kreiranju problemset-a');
         }
 
         const newProblemset = await createResponse.json();
@@ -364,7 +364,7 @@ function EditorPanel({ code, onChange, editorRef, monacoRef, onImageProcessing, 
 
       if (!saveResponse.ok) {
         const errorData = await saveResponse.json();
-        throw new Error(errorData.detail || 'Failed to save draft');
+        throw new Error(errorData.detail || 'Greška pri spašavanju skice');
       }
 
       // Then finalize the problemset
@@ -374,13 +374,13 @@ function EditorPanel({ code, onChange, editorRef, monacoRef, onImageProcessing, 
 
       if (!finalizeResponse.ok) {
         const errorData = await finalizeResponse.json();
-        throw new Error(errorData.detail || 'Failed to finalize problemset');
+        throw new Error(errorData.detail || 'Greška pri finaliziranju problemset-a');
       }
 
-      setSaveStatus({ success: true, message: 'Problemset finalized successfully' });
+      setSaveStatus({ success: true, message: 'Problemset uspješno finaliziran' });
     } catch (error) {
       console.error('Error finalizing problemset:', error);
-      setSaveStatus({ success: false, message: error.message || 'Failed to finalize problemset' });
+      setSaveStatus({ success: false, message: error.message || 'Greška pri finaliziranju problemset-a' });
     }
   };
 
