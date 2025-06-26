@@ -35,6 +35,7 @@ from server.services import profile_service
 from server.services.user import get_password_hash
 
 
+
 from typing import List
 
 logger = logging.getLogger(__name__)
@@ -199,14 +200,16 @@ def request_password_reset(data: PasswordResetRequest, db: Session = Depends(get
 def reset_password(data: PasswordResetConfirm, db: Session = Depends(get_db)):
     reset = db.query(PasswordReset).filter(PasswordReset.token == data.token).first()
 
-    if not reset or reset.expires_at < datetime.now(timezone.utc):
+    if not reset or reset.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="Neispravan ili istekao token")
 
     user = db.query(User).filter(User.id == reset.user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Korisnik nije pronađen")
 
-    user.password = hash_password(data.new_password)
+    user.password = get_password_hash(data.new_password)
+
+    db.add(user)
     db.delete(reset)
     db.commit()
 
