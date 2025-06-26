@@ -156,13 +156,21 @@ const copyToClipboard = (text, id) => {
 
   return (
     <div>
-      {/* Hamburger dugme za male ekrane */}
-      {isMobile && (
+      {/* Hamburger dugme za male ekrane, prikazuje se samo kad je drawer zatvoren */}
+      {isMobile && !drawerOpen && (
         <IconButton
           color="primary"
           aria-label="open sidebar"
           onClick={handleDrawerOpen}
-          sx={{ position: "fixed", top: 80, left: 16, zIndex: 2000 }}
+          sx={{
+            position: "fixed",
+            top: 72, // odmah ispod navbar-a (ako je navbar 64px visine, dodaj malo razmaka)
+            left: 16,
+            zIndex: 2000,
+            background: "white",
+            boxShadow: 1,
+            borderRadius: 2
+          }}
         >
           <MenuIcon />
         </IconButton>
