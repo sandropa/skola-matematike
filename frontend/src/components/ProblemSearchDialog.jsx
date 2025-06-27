@@ -192,38 +192,6 @@ export default function ProblemSearchDialog({ open, onClose, onProblemSelect }) 
             </div>
           </Drawer>
 
-          {/* Sidebar samo na velikim ekranima */}
-          <div style={{
-            width: '100%',
-            maxWidth: '260px',
-            padding: '2rem 1.5rem',
-            backgroundColor: '#ffffff',
-            borderRight: '1px solid #e0e0e0',
-            display: isMobile ? 'none' : 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-            boxShadow: '4px 0 10px rgba(0, 0, 0, 0.02)'
-          }}>
-            <div style={{
-              display: 'flex',
-              gap: '1.2rem',
-              paddingTop: '2rem',
-              justifyContent: 'center'
-            }}>
-              <UserIcon style={{
-                width: '28px',
-                height: '28px',
-                color: '#666',
-                cursor: 'pointer'
-              }} />
-              <SettingsIcon style={{
-                width: '28px',
-                height: '28px',
-                color: '#666',
-                cursor: 'pointer'
-              }} />
-            </div>
-          </div>
 
           {/* Main content */}
           <div style={{
