@@ -97,6 +97,24 @@ const rememberOpenedLecture = (id) => {
   localStorage.setItem(key, JSON.stringify(recent));
 };
 
+const downloadPDF = (problemsetId) => {
+  axios.get(`http://localhost:8000/problemsets/${problemsetId}/pdf`, {
+    responseType: 'blob'
+  })
+  .then((res) => {
+    const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `problemset_${problemsetId}.pdf`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  })
+  .catch((err) => {
+    console.error("Greška prilikom preuzimanja PDF-a:", err);
+  });
+};
+
 
 useEffect(() => {
   axios
@@ -151,6 +169,7 @@ const copyToClipboard = (text, id) => {
     setTimeout(() => setCopiedId(null), 1000);
   });
 };
+
 
 
 
@@ -400,7 +419,13 @@ const copyToClipboard = (text, id) => {
 }}
 
                       />
-                      <FileDown className="action-icon" title="Preuzmi PDF" />
+                     <FileDown
+  className="action-icon"
+  title="Preuzmi PDF"
+  style={{ cursor: 'pointer' }}
+  onClick={() => downloadPDF(project.id)}
+/>
+
                        <LocalOfferIcon
     className="action-icon"
     titleAccess="Dodaj tag"
