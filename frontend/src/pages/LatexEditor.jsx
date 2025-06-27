@@ -10,7 +10,8 @@ import {
   Snackbar,
   Button
 } from '@mui/material';
-import { Code, ImageIcon } from 'lucide-react';
+import { Code, ImageIcon, Plus } from 'lucide-react';
+import ProblemSearchDialog from '../components/ProblemSearchDialog';
 
 // Base API URL for your backend
 const API_BASE_URL = "http://localhost:8000";
@@ -249,6 +250,34 @@ function usePdfCompiler(editorRef) {
 function EditorPanel({ code, onChange, editorRef, monacoRef, onImageProcessing, problemsetId, setProblemsetId }) {
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [saveStatus, setSaveStatus] = useState({ success: false, message: '' });
+  const [problemDialogOpen, setProblemDialogOpen] = useState(false);
+
+  const handleAddProblem = (problem) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    const position = editor.getPosition();
+    if (!position) return;
+
+    // Insert the problem's LaTeX text at the current cursor position
+    const insertRange = new monacoRef.current.Range(
+      position.lineNumber,
+      position.column,
+      position.lineNumber,
+      position.column
+    );
+    
+    editor.executeEdits('add-problem', [{ 
+      range: insertRange, 
+      text: '\n\n' + problem.latex_text + '\n\n', 
+      forceMoveMarkers: true 
+    }]);
+    
+    // Move cursor to end of inserted text
+    const newPosition = editor.getPosition();
+    editor.setPosition(newPosition);
+    editor.focus();
+  };
 
   const handleSaveDraft = async () => {
     const editor = editorRef.current;
@@ -474,6 +503,26 @@ function EditorPanel({ code, onChange, editorRef, monacoRef, onImageProcessing, 
           <Button
             variant="outlined"
             size="small"
+            startIcon={<Plus size={16} />}
+            onClick={() => setProblemDialogOpen(true)}
+            sx={{
+              bgcolor: 'white',
+              borderColor: 'primary.main',
+              color: 'primary.main',
+              minWidth: 'auto',
+              px: 1.5,
+              lineHeight: 1.2,
+              '&:hover': {
+                bgcolor: 'primary.main',
+                color: 'white'
+              }
+            }}
+          >
+            Dodaj zadatak
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
             onClick={handleSaveDraft}
             sx={{
               bgcolor: 'white',
@@ -579,6 +628,12 @@ function EditorPanel({ code, onChange, editorRef, monacoRef, onImageProcessing, 
           </Alert>
         </Snackbar>
       )}
+
+      <ProblemSearchDialog
+        open={problemDialogOpen}
+        onClose={() => setProblemDialogOpen(false)}
+        onProblemSelect={handleAddProblem}
+      />
     </Paper>
   );
 }
