@@ -245,39 +245,87 @@ def compile_latex_to_pdf(latex_content: str) -> bytes:
             raise PDFGenerationError(f"Failed to read generated PDF file: {e}", log=log_output)
 
 
+# def get_problemset_pdf(db: Session, problemset_id: int) -> bytes:
+#     """
+#     Fetches Problemset data (with related problems), generates LaTeX, compiles it,
+#     and returns PDF bytes.
+#     """
+#     logger.info(f"Initiating PDF generation for Problemset ID: {problemset_id}")
+
+#     # Eagerly load the necessary relationships
+#     problemset = db.query(Problemset).options(
+#         joinedload(Problemset.problems) # Load the list of ProblemsetProblems links
+#         .joinedload(ProblemsetProblems.problem) # For each link, load the actual Problem
+#     ).filter(Problemset.id == problemset_id).first()
+
+#     if not problemset:
+#         logger.warning(f"Problemset with ID {problemset_id} not found in database.")
+#         raise ProblemsetNotFound(f"Problemset with ID {problemset_id} not found.")
+
+#     logger.info(f"Generating LaTeX for Problemset '{problemset.title}' (ID: {problemset_id})")
+#     try:
+#         latex_content = _generate_problemset_latex(problemset)
+#     except Exception as e:
+#         logger.exception(f"Error generating LaTeX content for problemset {problemset_id}: {e}")
+#         raise PDFGenerationError(f"Failed to generate LaTeX content: {e}")
+
+#     logger.info(f"Compiling LaTeX to PDF for Problemset ID: {problemset_id}")
+#     try:
+#         pdf_bytes = compile_latex_to_pdf(latex_content)
+#         logger.info(f"PDF compilation successful for Problemset ID: {problemset_id}")
+#         return pdf_bytes
+#     except (PDFGenerationError, FileNotFoundError) as e:
+#         # Log already happened in compile_latex_to_pdf or above
+#         logger.error(f"PDF generation failed for Problemset ID {problemset_id}: {e}")
+#         raise # Re-raise the specific error for the router to handle
+#     except Exception as e:
+#         logger.exception(f"Unexpected error during PDF compilation for problemset {problemset_id}: {e}")
+#         raise PDFGenerationError(f"An unexpected error occurred during PDF compilation: {e}")
+
+
 def get_problemset_pdf(db: Session, problemset_id: int) -> bytes:
     """
-    Fetches Problemset data (with related problems), generates LaTeX, compiles it,
-    and returns PDF bytes.
+    Fetches Problemset data (with related problems), uses existing raw_latex if available
+    or generates it, compiles to PDF, and returns PDF bytes.
     """
     logger.info(f"Initiating PDF generation for Problemset ID: {problemset_id}")
 
     # Eagerly load the necessary relationships
-    problemset = db.query(Problemset).options(
-        joinedload(Problemset.problems) # Load the list of ProblemsetProblems links
-        .joinedload(ProblemsetProblems.problem) # For each link, load the actual Problem
-    ).filter(Problemset.id == problemset_id).first()
+    problemset = (
+        db.query(Problemset)
+        .options(
+            joinedload(Problemset.problems)
+            .joinedload(ProblemsetProblems.problem)
+        )
+        .filter(Problemset.id == problemset_id)
+        .first()
+    )
 
     if not problemset:
         logger.warning(f"Problemset with ID {problemset_id} not found in database.")
         raise ProblemsetNotFound(f"Problemset with ID {problemset_id} not found.")
 
-    logger.info(f"Generating LaTeX for Problemset '{problemset.title}' (ID: {problemset_id})")
-    try:
-        latex_content = _generate_problemset_latex(problemset)
-    except Exception as e:
-        logger.exception(f"Error generating LaTeX content for problemset {problemset_id}: {e}")
-        raise PDFGenerationError(f"Failed to generate LaTeX content: {e}")
+    # Decide whether to use stored LaTeX or generate new
+    if problemset.raw_latex:
+        logger.info(f"Using raw LaTeX from DB for Problemset ID: {problemset_id}")
+        latex_content = problemset.raw_latex
+    else:
+        logger.info(f"Generating LaTeX for Problemset '{problemset.title}' (ID: {problemset_id})")
+        try:
+            latex_content = _generate_problemset_latex(problemset)
+        except Exception as e:
+            logger.exception(f"Error generating LaTeX content for Problemset ID {problemset_id}: {e}")
+            raise PDFGenerationError(f"Failed to generate LaTeX content: {e}")
 
+    # Compile to PDF
     logger.info(f"Compiling LaTeX to PDF for Problemset ID: {problemset_id}")
     try:
         pdf_bytes = compile_latex_to_pdf(latex_content)
         logger.info(f"PDF compilation successful for Problemset ID: {problemset_id}")
         return pdf_bytes
     except (PDFGenerationError, FileNotFoundError) as e:
-        # Log already happened in compile_latex_to_pdf or above
         logger.error(f"PDF generation failed for Problemset ID {problemset_id}: {e}")
-        raise # Re-raise the specific error for the router to handle
+        raise
     except Exception as e:
-        logger.exception(f"Unexpected error during PDF compilation for problemset {problemset_id}: {e}")
+        logger.exception(f"Unexpected error during PDF compilation for Problemset ID {problemset_id}: {e}")
         raise PDFGenerationError(f"An unexpected error occurred during PDF compilation: {e}")
