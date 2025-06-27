@@ -391,23 +391,6 @@ export default function ProblemSearchDialog({ open, onClose, onProblemSelect }) 
                                 <Copy size={18} strokeWidth={2} />
                               )}
                             </button>
-                            <Button
-                              variant="outlined"
-                              size="small"
-                              startIcon={<Plus size={16} />}
-                              onClick={() => handleProblemSelect(problem)}
-                              sx={{
-                                bgcolor: 'white',
-                                borderColor: '#1e6ca6',
-                                color: '#1e6ca6',
-                                '&:hover': {
-                                  bgcolor: '#1e6ca6',
-                                  color: 'white'
-                                }
-                              }}
-                            >
-                              Dodaj
-                            </Button>
                           </div>
                         </td>
                       </tr>
