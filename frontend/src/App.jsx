@@ -11,6 +11,7 @@ import Predavaci from './pages/Predavaci/Predavaci';
 import AcceptInvite from  './pages/login/AcceptInvite';
 import ResetPassword from  './pages/login/ResetPassword';
 import ResetPasswordRequest from  './pages/login/ResetPasswordRequest';
+import NotFound from './pages/NotFound';
 import './App.css';
 import Navbar from './components/Navbar';
 
@@ -55,10 +56,10 @@ return (
       <Route path="/profil/:id" element={<UserProfile />} />
       <Route path="/pocetna" element={<PocetnaStranica />} />
       <Route path="/predavaci" element={<Predavaci />} />
-      <Route path="*" element={<div>404: Page Not Found</div>} />
+      <Route path="*" element={<NotFound />} />
     </>
   ) : (
-    <Route path="*" element={<Navigate to="/login" />} />
+    <Route path="*" element={<Navigate to="/" />} />
   )}
 </Routes>
 
